@@ -43,17 +43,11 @@ class PokerGame(GameModel):
         self.cards_in_deck = [x for x in range(0, 52)]
         self.board = []
         self.hands = []
-        self.__deal_hands()
         self.button_pos = random.randint(0, num_players - 1)
-        self.to_act = self.button_pos + 3
-        if self.to_act >= num_players:
-            self.to_act -= num_players
-        self.last_to_bet = self.button_pos + 2
-        if self.last_to_bet >= num_players:
-            self.last_to_bet -= num_players
         self.in_action = [True for _ in range(0, num_players)]
         self.player_hand_states = [0 for _ in range(0, num_players)]
         self.player_money_state = [200 for _ in range(0, num_players)]
+        self.__deal_hands()
         self.big_blind = 2
         self.high_bet = 2
         self.round_bet = 2
@@ -65,26 +59,53 @@ class PokerGame(GameModel):
         Posts the big blind and small blind automatically
         """
 
-        num_players = self.num_players
+        pos = self.button_pos + 1
+        found_button = False
+        while (pos < self.button_pos + 1 + self.num_players) & (not found_button):
+            if self.in_action[pos % self.num_players]:
+                self.button_pos = pos % self.num_players
+                found_button = True
+            pos += 1
+
         small_blind_amount = int(self.big_blind / 2)
-        small_blind = self.button_pos + 1
-        big_blind = self.button_pos + 2
+        found_small = False
+        found_big = False
+        found_actor = False
+        pos = self.button_pos + 1
+        stop_point = pos + self.num_players
 
-        # Checks player bounds
-        if big_blind >= num_players:
-            big_blind -= num_players
-        if small_blind >= num_players:
-            small_blind -= num_players
+        # Finds active players for the positions of big blind, small blind, and in action
+        while (pos < stop_point) & (not found_actor):
+            if self.in_action[pos % self.num_players]:
+                if not found_small:
+                    small_blind = pos % self.num_players
+                    found_small = True
+                elif not found_big:
+                    big_blind = pos % self.num_players
+                    found_big = True
+                elif not found_actor:
+                    to_act = pos % self.num_players
+                    found_actor = True
+            pos += 1
 
+        # Ensures that action starts at the next available player
+        if found_actor:
+            self.to_act = to_act
+        else:
+            self.to_act = small_blind
+
+        self.last_to_bet = big_blind
+
+        # Pays up the big and small blind
         if self.player_money_state[big_blind] < self.big_blind:
-            self.player_hand_states[big_blind] = self.player_money_state
+            self.player_hand_states[big_blind] = self.player_money_state[big_blind]
             self.player_money_state[big_blind] = 0
         else:
             self.player_hand_states[big_blind] = self.big_blind
             self.player_money_state[big_blind] -= self.big_blind
 
         if self.player_money_state[small_blind] < small_blind_amount:
-            self.player_hand_states[small_blind] = self.player_money_state
+            self.player_hand_states[small_blind] = self.player_money_state[big_blind]
             self.player_money_state[small_blind] = 0
         else:
             self.player_hand_states[small_blind] = small_blind_amount
@@ -98,11 +119,18 @@ class PokerGame(GameModel):
         # Picks cards for all the players
         for cur_hand in range(0, self.num_players):
 
-            from_deck = random.sample(range(0, len(self.cards_in_deck)), 2)
-            from_deck = sorted(from_deck)
-            card_1 = self.cards_in_deck.pop(from_deck[0])
-            card_2 = self.cards_in_deck.pop(from_deck[1] - 1)
-            self.hands.append([card_1, card_2])
+            if self.player_money_state[cur_hand] > 0:
+                from_deck = random.sample(range(0, len(self.cards_in_deck)), 2)
+                from_deck = sorted(from_deck)
+                card_1 = self.cards_in_deck.pop(from_deck[0])
+                card_2 = self.cards_in_deck.pop(from_deck[1] - 1)
+                self.hands.append([card_1, card_2])
+            else:
+                self.hands.append([])
+                self.in_action[cur_hand] = False
+
+        print(self.hands)
+        print(self.player_money_state)
 
     # TODO Need to include bet history to have complete information
     def send_inputs(self):
@@ -116,7 +144,13 @@ class PokerGame(GameModel):
         if self.total_hands == -1:
             return -1
 
+        print(self.in_action)
+        print(self.player_hand_states)
+        print(self.player_money_state)
+
         to_act = self.to_act
+
+        print(self.to_act,end="TOACT\n")
 
         card1_value = self.hands[to_act][0] % 13
         card1_suit = int(self.hands[to_act][0] / 13)
@@ -195,7 +229,7 @@ class PokerGame(GameModel):
                 self.round_bet = bet_size
 
             # Checks to see if player is betting more than they can
-            if bet_size > self.player_money_state[self.to_act]:
+            if bet_size >= self.player_money_state[self.to_act]:
                 bet_size = self.player_money_state[self.to_act]
 
             self.player_hand_states[self.to_act] += bet_size
@@ -231,12 +265,15 @@ class PokerGame(GameModel):
                 card = random.randint(0, len(self.cards_in_deck) - 1)
                 self.board.append(self.cards_in_deck.pop(card))
 
-            self.to_act = self.button_pos + 1
-            if self.to_act >= self.num_players:
-                self.to_act = 0
+            pos = self.button_pos + 1
+            found_actor = False
+            while (pos < self.button_pos + 1 + self.num_players) & (not found_actor):
+                if self.in_action[pos % self.num_players]:
+                    self.to_act = pos % self.num_players
+                    found_actor = True
+                pos += 1
 
             self.last_to_bet = self.to_act
-
             self.high_bet = 0
 
     def send_fitness(self):
@@ -272,6 +309,11 @@ class PokerGame(GameModel):
                 if not self.player_money_state[actor_num] == 0:
                     self.to_act = actor_num
                     is_chosen = True
+                else:
+                    # If the last better has run out of money
+                    if self.last_to_bet == actor_num:
+                        self.next_round()
+                        return
             actor_num += 1
 
         actor_num = 0
@@ -282,6 +324,11 @@ class PokerGame(GameModel):
                 if not self.player_money_state[actor_num] == 0:
                     self.to_act = actor_num
                     is_chosen = True
+                else:
+                    # If the last better has run out of money
+                    if self.last_to_bet == actor_num:
+                        self.next_round()
+                        return
             actor_num += 1
 
         # If there is only one actor left, or all other players are all in
@@ -322,24 +369,26 @@ class PokerGame(GameModel):
         self.total_hands -= 1
         if self.total_hands == -1:
             return
-        self.num_actors = self.num_players
         self.cards_in_deck = [x for x in range(0, 52)]
         self.hands = []
         self.__deal_hands()
         self.board = []
-        self.button_pos += 1
-        if self.button_pos >= self.num_players:
-            self.button_pos = 0
-        self.to_act = self.button_pos + 3
-        if self.to_act >= self.num_players:
-            self.to_act -= self.num_players
-        self.last_to_bet = self.button_pos + 2
-        if self.last_to_bet >= self.num_players:
-            self.last_to_bet -= self.num_players
-        self.in_action = [True for _ in range(0, self.num_players)]
+        total_alive = 0
+        for players in range(0, self.num_players):
+            if self.player_money_state[players] == 0:
+                self.in_action[players] = False
+            else:
+                self.in_action[players] = True
+                total_alive += 1
+        if total_alive <= 1:
+            self.total_hands = -1
+            return
+        self.num_actors = total_alive
         self.high_bet = 2
         self.__pay_blinds()
         self.round_bet = 2
+        if not self.in_action[self.to_act]:
+            self.next_actor()
         self.is_send_state = True
 
     def evaluate_old_hand(self):
@@ -404,7 +453,6 @@ class PokerGame(GameModel):
                 paid_off = self.__payoff_players(ranks_owed, owed_amounts)
 
                 pot_size -= paid_off
-        print(self.player_money_state)
 
     def __payoff_players(self, actors, owed_amounts):
         """
@@ -541,11 +589,15 @@ class PokerGame(GameModel):
                         best_cards[begin + 1] = card_set1
             tiebreak_iter = tie_end + 1
 
+        # DEBUGGING
         print("HAND RESULTs")
         string1 = "                  ["
         for item in self.hands:
-            string1 += "(" + str(item[0] % 13) + "," + str(int(item[0]/13))
-            string1 += "),(" + str(item[1] % 13) + "," + str(int(item[1] / 13)) + "), "
+            if not item == []:
+                string1 += "(" + str(item[0] % 13) + "," + str(int(item[0]/13))
+                string1 += "),(" + str(item[1] % 13) + "," + str(int(item[1] / 13)) + "), "
+            else:
+                string1 += "(X,X),(X,X),"
         string1 += "] HANDS"
         print(string1)
         string1 = "                  ["
@@ -790,7 +842,7 @@ class PokerGame(GameModel):
                 # Remove the 4 of a kind cards, so they can't be chosen as the high card
                 for item in pair:
                     cards.remove(item)
-                pair.extend(cards.pop(-1))
+                pair.append(cards.pop(-1))
                 return 2, pair
             elif len(pair) == 3:
                 three_pair.append(pair)
