@@ -129,8 +129,11 @@ class PokerGame(GameModel):
                 self.hands.append([])
                 self.in_action[cur_hand] = False
 
-        print(self.hands)
-        print(self.player_money_state)
+        count = 0
+        for item in self.player_money_state:
+            count += item
+        if not count == 800:
+            raise NotImplementedError("WHY")
 
     # TODO Need to include bet history to have complete information
     def send_inputs(self):
@@ -144,13 +147,7 @@ class PokerGame(GameModel):
         if self.total_hands == -1:
             return -1
 
-        print(self.in_action)
-        print(self.player_hand_states)
-        print(self.player_money_state)
-
         to_act = self.to_act
-
-        print(self.to_act,end="TOACT\n")
 
         card1_value = self.hands[to_act][0] % 13
         card1_suit = int(self.hands[to_act][0] / 13)
@@ -489,15 +486,26 @@ class PokerGame(GameModel):
 
             rounding_check = divided_pot * len(actors)
             # Ensures that the money goes somewhere
-            while rounding_check <= pot_size:
+            while rounding_check < pot_size:
                 random_num = random.randint(0, len(actors) - 1)
-                self.player_hand_states[actors[random_num]] += 1
+                self.player_money_state[actors[random_num]] += 1
                 rounding_check += 1
 
             owed_amounts.pop(0)
             actors.pop(0)
+
+            owed_iter = 0
+            while owed_iter < len(actors):
+                if owed_amounts[owed_iter] == owed:
+                    actors.pop(0)
+                    owed_amounts.pop(0)
+                else:
+                    owed_iter = len(actors)
+
             paid = owed
             total_pot += pot_size
+
+        print(self.player_money_state)
         return total_pot
 
     def __cards_are_equal(self, card_set1, card_set2):
