@@ -500,13 +500,13 @@ class ModelRates:
 
 
 class LearningModel:
-    def __init__(self, model_constants, game_model,
+    def __init__(self, model_constants, game_generator,
                  mutation_rates, speciation_values, model_rates):
         """
         Saves the initial parameters
 
         :param model_constants: The constants associated with the neural network model
-        :param game_model:  The method that evaluates a neural networks fitness
+        :param game_generator:  The method that evaluates a neural networks fitness
         :param mutation_rates:  The rates that the neural networks originally get
                                 mutated at
         :param speciation_values:   The coefficients for the similarity function
@@ -518,7 +518,7 @@ class LearningModel:
         if mutation_rates is None:
             mutation_rates = MutationRates()
         self.model_constants = model_constants
-        self.game_model = game_model
+        self.game_generator = game_generator
         self.mutation_rates = mutation_rates
         self.speciation_values = speciation_values
         self.model_rates = model_rates
@@ -1075,6 +1075,12 @@ class LearningModel:
 
             cur_node.value = self.sigmoid(total_value)
 
+        to_return = []
+        for output_iter in range(network.num_inputs, network.num_inputs + network.num_outputs):
+            to_return.append(network.neurons_sorted[output_iter])
+
+        return to_return
+
     def basic_genome(self, inputs, outputs):
         """
         Creates and returns a default genome with no connections
@@ -1452,7 +1458,6 @@ class LearningModel:
         if not self.population:
             raise NotImplementedError("Population does not exist")
 
-
     def selection_crossover(self):
         """
         Completes the selection of genomes to be bred and then creates the child
@@ -1537,7 +1542,7 @@ class LearningModel:
 
         # A list of randomly ordered elements from 0 to the length of the population - 1
         # There are "game_per_genome" of these lists created and put into one list
-        for _ in range(0, len(self.model_constants.games_per_genome)):
+        for _ in range(0, self.model_constants.games_per_genome):
             game_division.append(random.sample(range(0, pop_len, pop_len)))
 
         # Reorders the list of lists of numbers so that now we have a list of "games"
@@ -1549,8 +1554,44 @@ class LearningModel:
                 players.append(game_division[cur_player][game_iter])
             games.append(players)
 
-        self.play_games(games)
+        self.__play_games(games)
 
-    def play_games(self, games):
+    # TODO Possible Idea: Make networks updatable so we don't constantly recreate
+    # similar structure
+    def __play_games(self, games):
+        """
+        Takes every game listed in 'games' and runs the game to completion, at which
+        point the fitness of every player involved in the game is updated
 
-        game_model = self.game_model
+        :param games:   A list of games where the games are lists of players to be
+                        competing in the games
+        """
+
+        game_gen = self.game_generator
+
+        # Creates the networks for the population
+        for genome in self.population:
+            genome.network = self.create_network(genome)
+
+        # Runs each game by facilitating the information transfer between
+        # neural networks and the GameModel
+        for game in games:
+            cur_game = game_gen.create_game()
+            is_game_done = False
+
+            # Continually facilitate information trade, until the game ends
+            while not is_game_done:
+
+                (to_act, nn_inputs) = cur_game.send_inputs()
+                this_nn = self.population[game[to_act]]
+                nn_output = self.evaluate_neuron_values(this_nn, nn_inputs)
+                is_game_done = (cur_game.receive_outputs(nn_output) == -1)
+
+            game_results = cur_game.send_fitness()
+
+            for game_iter in range(0, len(game)):
+                self.population[game[game_iter]].fitness += game_results[game_iter]
+
+        # Reset networks to empty, as the same networks are not likely to be used again
+        for genome in self.population:
+            genome.network = []
