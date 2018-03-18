@@ -90,6 +90,7 @@ author: Andrew Butler
 # DOES NOT APPEAR MORE THAN ONCE
 # TODO FOR FUTURE: REMOVE STALE SPECIES AND REPLACE WITH BASIC GENOMES
 # TO FACILITATE RANDOM RESTARTING WHEN THE POPULATION STALES OUT
+# TODO Make networks updatable so that they are not constantly recreated
 import math
 import random
 import copy
@@ -454,6 +455,7 @@ class ModelConstants:
         self.parallel_evals = parallel_evals
         self.games_per_genome = games_per_gen
 
+
 class GameConstants:
     """
     Constants that describe how the games should be played
@@ -499,8 +501,36 @@ class ModelRates:
         self.interspecies_mating_rate = interspecies_mating_rate
 
 
+class GenerationRates:
+    """
+    A collection of rates on how the population changes from generation to generation
+
+    child_rate:     The percentage of bred children that make it to the next generation
+    mutated_rate:   The percentage of mutated genomes from the original generation that
+                    are brought into the next generation
+    top_x_species:  The number of top genomes that are brought into the next round untouched
+    top_x_min_size: The number of genomes that need to be in a species to guarantee that
+                    it is eligible to give its top_x genomes to the next generation
+    cull_rate:      The percentage of genomes that will be removed from the pool before
+                    the creation of the next generation begins
+    Rates in NEAT Paper:
+    child_rate = .75
+    mutated_rate = .25
+    top_x_species = 1 "The champion of each species with more than five networks was brought
+                       into the next generation unchanged"
+    top_x_min_size = 5 This follows directly from the above statement
+    cull_rate = No mention in the paper however, SethBling uses a value of .5
+    """
+    def __init__(self, child_rate, mutated_rate, top_x_species, top_x_min_size, cull_rate):
+        self.child_rate = child_rate
+        self.mutated_rate = mutated_rate
+        self.top_x_species = top_x_species
+        self.top_x_min_size = top_x_min_size
+        self.cull_rate = cull_rate
+
+
 class LearningModel:
-    def __init__(self, model_constants, game_generator,
+    def __init__(self, model_constants, game_generator, gen_rates,
                  mutation_rates, speciation_values, model_rates):
         """
         Saves the initial parameters
@@ -519,6 +549,7 @@ class LearningModel:
             mutation_rates = MutationRates()
         self.model_constants = model_constants
         self.game_generator = game_generator
+        self.gen_rates = gen_rates
         self.mutation_rates = mutation_rates
         self.speciation_values = speciation_values
         self.model_rates = model_rates
@@ -1117,6 +1148,17 @@ class LearningModel:
 
         return genome
 
+    def mutate_pool(self):
+        """
+        Mutate all of the genomes that are still in the pool
+        """
+
+        pool = self.pool
+
+        for species in pool.species:
+            for genome in species.genomes:
+                self.mutate(genome)
+
     def mutate(self, genome):
         """
         Runs through all the possible mutation types on
@@ -1286,7 +1328,7 @@ class LearningModel:
                 self.population.append(self.basic_genome(input_size, output_size))
 
     # TODO UPDATE FITNESS SCORING TO ACCOUNT FOR STALENESS
-    def speciate_population(self, species_list):
+    def __speciate_population(self, species_list):
         """
         Creates a new pool that contains the speciated population from
         the last generation
@@ -1409,41 +1451,6 @@ class LearningModel:
 
         return compatibility_diff
 
-    # TODO Add random gene selection between genomes with equal fitness
-    def crossover_genes(self, genome1, genome2):
-        """
-        Combines two genomes into a new genome with all of the superior fitnesses'
-        genes and the excess and disjoint genes of the genome with the lower fitness
-
-        :param genome1:     The first genome in the crossover
-        :param genome2:     The second genome in the crossover
-        :return:            A new genome that is a crossover of the two genome parameters
-        """
-
-        if genome1.fitness < genome2.fitness:
-            temp = genome1
-            genome1 = genome2
-            genome2 = temp
-
-        new_genome = self.copy_genome(genome1)
-        new_genome.num_inputs = genome1.num_inputs
-        new_genome.num_outputs = genome1.num_outputs
-        new_genome.max_neuron = max(genome1.max_neuron, genome2.max_neuron)
-        new_genome.mutation_rates = self.copy_mutation_rates(genome1.mutation_rates)
-
-        innovations = [[] in range(0, self.pool.innovation)]
-
-        for gene in genome1.genes:
-            innovations[gene.innovation] = gene
-
-        for gene in genome2.genes:
-            # If the innovation does not exist in genome1 then it is either an excess
-            # or disjoint gene and should be added to the new_gene
-            if not innovations[gene.innovation]:
-                new_genome.add_gene(gene)
-
-        return new_genome
-
     # TODO
     def run_simulation(self, num_generations):
 
@@ -1455,8 +1462,33 @@ class LearningModel:
     # TODO
     def run_generation(self):
 
-        if not self.population:
-            raise NotImplementedError("Population does not exist")
+        self.__speciate_population(self.pool.species)
+        self.__score_genomes()
+
+        self.mutate_pool()
+
+    #
+    # **************************** CROSSOVER METHODS ****************************
+    #
+
+    # TODO
+    def build_generation(self):
+
+        cross_rate = self.gen_rates.child_rate
+        mutate_rate = self.gen_rates.mutated_rate
+        top_x_species = self.gen_rates.top_x_species
+        gen_size = self.model_constants.population_size
+
+        species_list = []
+
+        for species_iter in range(0, len(self.pool.species)):
+            specie = self.pool.species[species_iter]
+            species_list.append(specie.top_fitness, specie)
+
+        species_list = sorted(species_list)
+
+
+
 
     def selection_crossover(self):
         """
@@ -1507,30 +1539,70 @@ class LearningModel:
 
         return species.genomes[len(fitness) - 1]
 
-    def score_fitness(self):
+    # TODO Add random gene selection between genomes with equal fitness
+    def crossover_genes(self, genome1, genome2):
         """
-        Scores all the genomes fitnesses and then calculates the shared fitnes
+        Combines two genomes into a new genome with all of the superior fitnesses'
+        genes and the excess and disjoint genes of the genome with the lower fitness
+
+        :param genome1:     The first genome in the crossover
+        :param genome2:     The second genome in the crossover
+        :return:            A new genome that is a crossover of the two genome parameters
         """
 
-        self.score_genomes()
+        if genome1.fitness < genome2.fitness:
+            temp = genome1
+            genome1 = genome2
+            genome2 = temp
 
-        # Goes through each species and updates the shared fitness of the genomes
-        # and checks for a new max fitness for the species
-        for species in self.pool.species:
-            species_total_fitness = 0
-            size_species = len(species.genomes)
+        new_genome = self.copy_genome(genome1)
+        new_genome.num_inputs = genome1.num_inputs
+        new_genome.num_outputs = genome1.num_outputs
+        new_genome.max_neuron = max(genome1.max_neuron, genome2.max_neuron)
+        new_genome.mutation_rates = self.copy_mutation_rates(genome1.mutation_rates)
 
-            for genome in species.genomes:
-                genome.shared_fitness = genome.fitness / size_species
-                if genome.shared_fitness > species.top_fitness:
-                    species.top_fitness = genome.shared_fitness
-                species_total_fitness += genome.shared_fitness
+        innovations = [[] in range(0, self.pool.innovation)]
 
-            species.average_fitness = (species_total_fitness / size_species)
+        for gene in genome1.genes:
+            innovations[gene.innovation] = gene
+
+        for gene in genome2.genes:
+            # If the innovation does not exist in genome1 then it is either an excess
+            # or disjoint gene and should be added to the new_gene
+            if not innovations[gene.innovation]:
+                new_genome.add_gene(gene)
+
+        return new_genome
+
+    def culling(self):
+        """
+        Removes the genomes with the lowest shared fitness from the pool. The amount of
+        genomes removed depends on the given generational rates
+        """
+
+        all_genomes = []
+
+        # Creates a list of tuples of the form (shared fitness, (species, cur_genome))
+        # Where cur_genome is the genome that is being evaluated, shared fitness is
+        # the shared fitness of that genome, and species is the number of the species
+        # that the cur_genome belongs to
+        for species_iter in range(0, len(self.pool.species)):
+            for genome_iter in range(0, len(self.pool.species[species_iter].genomes)):
+                cur_genome = self.pool.species[species_iter].genomes[genome_iter]
+                all_genomes.append(cur_genome.shared_fitness, (species_iter, cur_genome))
+
+        # Sort the genomes by shared fitness
+        sorted_genomes = sorted(all_genomes)
+
+        to_remove = math.ceil(self.gen_rates.cull_rate * len(sorted_genomes))
+        # Removes the amount of genomes specified by the given cull_rate
+        for worst_genomes_iter in range(0, to_remove):
+            (shared_fitness, (species, cur_genome)) = sorted_genomes[worst_genomes_iter]
+            self.pool.species[species].remove(cur_genome)
 
     # TODO DIVIDE INTO MODELCONSTANTS.X NUMBER OF GAMES OF MUDELCONSTANT.PARALLEL_EVAL
     # TODO NETWORKS AND EVALUATE EACH NETWORKS FITNESS BASED ON GAMES
-    def score_genomes(self):
+    def __score_genomes(self):
         """
         Splits all of the genomes into games based on what GameConstants have been decided
         and then plays those games individually
@@ -1556,8 +1628,20 @@ class LearningModel:
 
         self.__play_games(games)
 
-    # TODO Possible Idea: Make networks updatable so we don't constantly recreate
-    # similar structure
+        # Calculates the adjusted fitness of the genomes and top fitness and average fitness
+        # of each species as a whole
+        for specie in self.pool.species:
+            top_fitness = 0
+            total_fitness = 0
+            len_specie = len(specie.genomes)
+            for genome in specie.genomes:
+                if genome.fitness > top_fitness:
+                    top_fitness = genome.fitness
+                genome.shared_fitness = genome.fitness / len_specie
+                total_fitness += genome.fitness
+            specie.top_fitness = top_fitness
+            specie.average_fitness = total_fitness / len_specie
+
     def __play_games(self, games):
         """
         Takes every game listed in 'games' and runs the game to completion, at which
