@@ -508,7 +508,8 @@ class GenerationRates:
     child_rate:     The percentage of bred children that make it to the next generation
     mutated_rate:   The percentage of mutated genomes from the original generation that
                     are brought into the next generation
-    top_x_species:  The number of top genomes that are brought into the next round untouched
+    top_x_species:  The number of top genomes from each species with greater than
+                    top_x_min_size that are brought into the next round
     top_x_min_size: The number of genomes that need to be in a species to guarantee that
                     it is eligible to give its top_x genomes to the next generation
     cull_rate:      The percentage of genomes that will be removed from the pool before
@@ -555,6 +556,10 @@ class LearningModel:
         self.model_rates = model_rates
         self.pool = Pool()
         self.population = []
+
+    # **********************************************************************************
+    # ******************************** Managing Library ********************************
+    # **********************************************************************************
 
     def set_pool(self, value):
         self.pool = value
@@ -1148,6 +1153,10 @@ class LearningModel:
 
         return genome
 
+    # **********************************************************************************
+    # ******************************* Mutation Functions *******************************
+    # **********************************************************************************
+
     def mutate_pool(self):
         """
         Mutate all of the genomes that are still in the pool
@@ -1309,26 +1318,12 @@ class LearningModel:
                                 True, self.pool.get_innovation())
                 genome.genes.append(new_gene)
 
-    def create_population(self, is_connected):
-        """
-        Creates a population that is structured based on the model variables.
-        This initial population can either be connected or not based on is_connected.
-
-        :param is_connected:    Whether or not the genomes should be connected or not
-        """
-
-        pop_size = self.model_constants.population_size
-        input_size = self.model_constants.inputs
-        output_size = self.model_constants.outputs
-
-        for genome_num in range(0, pop_size):
-            if is_connected:
-                self.population.append(self.basic_genome_connected(input_size, output_size))
-            else:
-                self.population.append(self.basic_genome(input_size, output_size))
+    # **********************************************************************************
+    # ****************************** Speciation Functions ******************************
+    # **********************************************************************************
 
     # TODO UPDATE FITNESS SCORING TO ACCOUNT FOR STALENESS
-    def __speciate_population(self, species_list):
+    def speciate_population(self, species_list):
         """
         Creates a new pool that contains the speciated population from
         the last generation
@@ -1451,6 +1446,28 @@ class LearningModel:
 
         return compatibility_diff
 
+    # **********************************************************************************
+    # **************************** Outward Facing Functions ****************************
+    # **********************************************************************************
+
+    def create_population(self, is_connected):
+        """
+        Creates a population that is structured based on the model variables.
+        This initial population can either be connected or not based on is_connected.
+
+        :param is_connected:    Whether or not the genomes should be connected or not
+        """
+
+        pop_size = self.model_constants.population_size
+        input_size = self.model_constants.inputs
+        output_size = self.model_constants.outputs
+
+        for genome_num in range(0, pop_size):
+            if is_connected:
+                self.population.append(self.basic_genome_connected(input_size, output_size))
+            else:
+                self.population.append(self.basic_genome(input_size, output_size))
+
     # TODO
     def run_simulation(self, num_generations):
 
@@ -1462,33 +1479,95 @@ class LearningModel:
     # TODO
     def run_generation(self):
 
-        self.__speciate_population(self.pool.species)
-        self.__score_genomes()
+        self.pool = self.speciate_population(self.pool.species)
+        self.score_genomes()
+
+        self.build_generation()
+
+    # **********************************************************************************
+    # ************************** Building the Next Generation **************************
+    # **********************************************************************************
+
+    def build_generation(self):
+        """
+        Completes the culling, breeding, and mutating stages of the NEAT cycle.
+
+        :return:    Returns a list of genomes to be put into the next pool
+        """
+
+        gen_size = self.model_constants.population_size
+        species = self.pool.species
+
+        top_x_genomes = self.isolate_top_x()
+
+        self.cull_population()
+
+        num_mutated = 0
+
+        # Figures out how many genomes are moving into the next generation
+        # after being mutated to see how many children genomes need to be bred
+        for specie in species:
+            num_mutated += len(specie.genomes)
+
+        num_cross = gen_size - len(top_x_genomes) - num_mutated
+        crossed_genomes = []
+
+        # Create a certain number of bred children that fills in the rest of the population
+        for cross_iter in range(0, num_cross):
+            crossed_genomes.append(self.selection_crossover())
 
         self.mutate_pool()
 
-    #
-    # **************************** CROSSOVER METHODS ****************************
-    #
+        mutated_genomes = []
 
-    # TODO
-    def build_generation(self):
+        # Adds all the mutated genomes to the list
+        for specie in species:
+            mutated_genomes.extend(specie.genomes)
 
-        cross_rate = self.gen_rates.child_rate
-        mutate_rate = self.gen_rates.mutated_rate
+        to_return = mutated_genomes
+        to_return.extend(crossed_genomes)
+        to_return.extend(top_x_genomes)
+
+        return to_return
+
+    def isolate_top_x(self):
+        """
+        Saves the top_x competitors of each species if they meet the requirements
+        for minimum amount of genomes to contribute
+
+        :return:     "top_x_species" amount of genomes from each species that has
+                     at least "top_x_min_size" genomes in its species
+                     (both variables are from GenerationRates)
+        """
+
         top_x_species = self.gen_rates.top_x_species
-        gen_size = self.model_constants.population_size
+        top_x_min_size = self.gen_rates.top_x_min_size
+        species = self.pool.species
 
-        species_list = []
+        top_x_genomes = []
 
+        # Retrieves an "top_x_species" amount of genomes from each species that has
+        # at least "top_x_min_size" genomes in its species
         for species_iter in range(0, len(self.pool.species)):
-            specie = self.pool.species[species_iter]
-            species_list.append(specie.top_fitness, specie)
+            if len(species[species_iter]) >= top_x_min_size:
+                genome_list = []
+                for genome in species[species_iter]:
+                    genome_list.append(genome.shared_fitness, (genome, species_iter))
+                sorted_genomes = sorted(genome_list)
 
-        species_list = sorted(species_list)
+                genome_iter = len(sorted_genomes) - 1
+                list_len = len(sorted_genomes) - 1
+                while (genome_iter > 0) & (list_len - genome_iter < top_x_species):
+                    top_x_genomes.append(sorted_genomes[genome_iter])
+                    genome_iter -= 1
 
+        deep_top_x_genomes = []
 
+        # Make these deep copies, because we will use the others later
+        for shallow_copy in top_x_genomes:
+            deep_top_x_genomes(self.copy_genome(shallow_copy))
 
+        return deep_top_x_genomes
 
     def selection_crossover(self):
         """
@@ -1574,7 +1653,7 @@ class LearningModel:
 
         return new_genome
 
-    def culling(self):
+    def cull_population(self):
         """
         Removes the genomes with the lowest shared fitness from the pool. The amount of
         genomes removed depends on the given generational rates
@@ -1600,9 +1679,18 @@ class LearningModel:
             (shared_fitness, (species, cur_genome)) = sorted_genomes[worst_genomes_iter]
             self.pool.species[species].remove(cur_genome)
 
+        # Removes any species with no genomes from the pool
+        for specie in self.pool.species:
+            if len(specie.genomes) == 0:
+                self.pool.species.remove(specie)
+
+    # **********************************************************************************
+    # ***************************** Fitness Scoring ************************************
+    # **********************************************************************************
+
     # TODO DIVIDE INTO MODELCONSTANTS.X NUMBER OF GAMES OF MUDELCONSTANT.PARALLEL_EVAL
     # TODO NETWORKS AND EVALUATE EACH NETWORKS FITNESS BASED ON GAMES
-    def __score_genomes(self):
+    def score_genomes(self):
         """
         Splits all of the genomes into games based on what GameConstants have been decided
         and then plays those games individually
@@ -1626,7 +1714,7 @@ class LearningModel:
                 players.append(game_division[cur_player][game_iter])
             games.append(players)
 
-        self.__play_games(games)
+        self.play_games(games)
 
         # Calculates the adjusted fitness of the genomes and top fitness and average fitness
         # of each species as a whole
@@ -1642,7 +1730,7 @@ class LearningModel:
             specie.top_fitness = top_fitness
             specie.average_fitness = total_fitness / len_specie
 
-    def __play_games(self, games):
+    def play_games(self, games):
         """
         Takes every game listed in 'games' and runs the game to completion, at which
         point the fitness of every player involved in the game is updated
