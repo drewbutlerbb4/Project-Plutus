@@ -52,9 +52,9 @@ Documentation Points:
      average case search time depends on the sparsity of the directed acyclic graph,
      but can be no worse O(E). Having twice the adjacency lists comes with the obvious
      side-effect of double the space complexity. Using two adjacency lists has
-     the advantage of saving space, as an adjacency matrix costs O(n^2) whereas an
-     adjacency list costs O(n). On top of that searching for all the edges off of
-     a node takes best, average, and worst case O(n), whereas the double adjacency
+     the advantage of saving space, as an adjacency matrix costs O(V^2) whereas an
+     adjacency list costs O(V*E). On top of that searching for all the edges off of
+     a node takes best, average, and worst case O(E), whereas the double adjacency
      list does better than that (as discussed before)
 4.  I tried to find literature about the most meaningful way to select individuals
     to engage in crossover given speciation information, but was unable to find anything.
@@ -224,6 +224,10 @@ class Genome:
             mutation_rates = MutationRates()
         if topological_order is None:
             topological_order = []
+            # topological_order = random.sample(range(0, num_inputs), num_inputs)
+            # outputs = random.sample(range(num_inputs, num_inputs + num_outputs))
+            # topological_order.extend(outputs)
+
         self.genes = genes
         self.fitness = fitness
         self.shared_fitness = shared_fitness
@@ -236,42 +240,78 @@ class Genome:
         self.mutation_rates = mutation_rates
         self.topological_order = topological_order
 
-    def add_gene(self, gene):
+    def crossover_add_gene(self, gene):
         """
-        Adds a gene to the genome and changes the necessary
-        parameters associated
+        Adds the gene into the genome
 
         :param gene:    The gene to be added
-        :return:
         """
 
-        lower_bound = -1
-        upper_bound = -1
+        self.genes.append(gene)
 
-        for order_iter in range(0, len(self.topological_order)):
-            cur_node = self.topological_order[order_iter]
-            if cur_node == gene.out:
-                lower_bound = order_iter
-            if cur_node == gene.into:
-                upper_bound = order_iter
+    def mutate_connection(self, innovation_num):
+        """
+        Adds a gene to the genome randomly and changes the necessary
+        parameters associated
+        """
 
-        if (lower_bound == -1) | (upper_bound == -1):
-            raise NotImplementedError("Adding genes for new neural networks is not"
-                                      "currently supported")
-        else:
+        random_list = copy.deepcopy(self.topological_order)
+        random_node1 = random.randint(0, len(random_list))
+        # If we chose a input, bias, or output node don't allow us to do that in the
+        # second choice
+        if random_node1 <= self.num_inputs:
+            holder = self.topological_order[self.num_inputs + 1:]
+            random_list = copy.deepcopy(holder)
+        elif random_node1 <= self.num_inputs + self.num_outputs + 1:
+            holder = self.topological_order[: len(self.topological_order) - self.num_outputs - 1]
+            random_list = copy.deepcopy(holder)
 
-            if (gene.into == self.max_neuron) | (gene.out == self.max_neuron):
-                self.max_neuron += 1
-            self.genes.append(gene)
+        random_list.remove(random_node1)
+        random_node2 = random.randint(0, len(random_list))
 
-            random_num = random.randint(lower_bound + 1, upper_bound)
-            new_order = self.topological_order[0:random_num]
-            new_order.append(gene)
-            new_order.extend(self.topological_order[random_num:])
-            self.topological_order = new_order
+        node1_index = (self.topological_order.index(random_node1)
+                       if random_node1 in self.topological_order else -1)
+        node2_index = (self.topological_order.index(random_node2)
+                       if random_node2 in self.topological_order else -1)
 
-            if gene.innovation > self.max_innovation:
-                self.max_innovation = gene.innovation
+        # Ensures there are no recurrent connections, by forcing node2 to have
+        # the greater index
+        if node1_index > node2_index:
+            temp = random_node1
+            random_node1 = random_node2
+            random_node2 = temp
+
+        random_num = (random.random() * 4) - 2
+        new_gene = Gene(random_node2, random_node1, random_num, True, innovation_num)
+        self.max_innovation += 1
+        self.genes.append(new_gene)
+
+    def mutate_node(self, innovation_num1, innovation_num2):
+        """
+        Adds two genes to the genomes where one used to be. Updates class values as
+        needed
+        """
+
+        enabled_genes = []
+        # Compiles all of the genes that are enabled and not attached to the bias node
+        for gene in self.genes:
+            if gene.enabled & (not gene.out == self.num_inputs):
+                enabled_genes.append(gene)
+
+        old_gene = enabled_genes[random.randint(0, len(enabled_genes)) - 1]
+
+        # The connection into the new node has a weight of 1 while the connection into
+        # the old_gene's into node receives the old_gene's weight.
+        # This minimizes the immediate effect on the networks fitness
+        gene_split1 = Gene(self.max_neuron, old_gene.out, 1.0, True, innovation_num1)
+        gene_split2 = Gene(old_gene.into, self.max_neuron, old_gene.weight,
+                           True, innovation_num2)
+
+        old_gene.enabled = False
+        self.max_neuron += 1
+        self.max_innovation += 2
+        self.genes.append(gene_split1)
+        self.genes.append(gene_split2)
 
     def to_string(self):
         """
@@ -403,9 +443,9 @@ class MutationRates:
                     (out, into) is disabled, a node 'new' is created, and
                     two connection pairs are created (out, new) and (new, into)
     enable:         The likelihood of a mutation where a certain gene is
-                    disabled.
-    disbale:        The likelihood of a mutation where a certain gene is
                     enabled.
+    disable:        The likelihood of a mutation where a certain gene is
+                    disabled.
     step:           The maximum change in either direction for the weight of
                     a gene if it is being perturbed
 
@@ -438,6 +478,7 @@ class MutationRates:
         return to_return
 
 
+# TODO Utilize the parallel_evals variable to run multiple games at the same time
 class ModelConstants:
     """
     Constants that describe the model
@@ -445,7 +486,7 @@ class ModelConstants:
     inputs:         The number of input nodes
     outputs:        The number of output nodes
     population_size:The size of the population during a generation
-    parallel_evals: The number of networks being evaluated at the same time
+    parallel_evals: The number of games going on at once
     games_per_genome:The number of games each genome plays during a generation
     """
     def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_gen):
@@ -460,13 +501,11 @@ class GameConstants:
     """
     Constants that describe how the games should be played
 
-    parallel_evals: The number of networks being evaluated at the same time
-    games_per_genome:The number of games each genome plays during a generation
-    evals_per_game: The number of evaluations on a network each game
+    players_per_game : The number of networks being evaluated at the same time
+    evals_per_game   : The number of evaluations on a network each game
     """
-    def __init__(self, parallel_evals, games_per_gen, hands_per_game):
-        self.parallel_evals = parallel_evals
-        self.games_per_genome = games_per_gen
+    def __init__(self, players_per_game, hands_per_game):
+        self.players_per_game = players_per_game
         self.hands_per_game = hands_per_game
 
 
@@ -521,10 +560,13 @@ class GenerationRates:
                        into the next generation unchanged"
     top_x_min_size = 5 This follows directly from the above statement
     cull_rate = No mention in the paper however, SethBling uses a value of .5
+
+
+    child_rate and mutated_rate have been removed and become an implied value. I have
+    left the documentation for them here, in case I would like to add them back as a
+    forced value
     """
-    def __init__(self, child_rate, mutated_rate, top_x_species, top_x_min_size, cull_rate):
-        self.child_rate = child_rate
-        self.mutated_rate = mutated_rate
+    def __init__(self, top_x_species, top_x_min_size, cull_rate):
         self.top_x_species = top_x_species
         self.top_x_min_size = top_x_min_size
         self.cull_rate = cull_rate
@@ -532,18 +574,20 @@ class GenerationRates:
 
 class LearningModel:
     def __init__(self, model_constants, game_generator, gen_rates,
-                 mutation_rates, speciation_values, model_rates):
+                 mutation_rates, speciation_values, model_rates, game_constants):
         """
         Saves the initial parameters
 
         :param model_constants: The constants associated with the neural network model
         :param game_generator:  The method that evaluates a neural networks fitness
+        :param gen_rates:       The different rates used for generational building
         :param mutation_rates:  The rates that the neural networks originally get
                                 mutated at
         :param speciation_values:   The coefficients for the similarity function
                                 as well as the compatibility constant
         :param model_rates:     The rates of change that the learning model forces
                                 on the genomes it maintains
+        :param game_constants:  The constants for games to be made
         """
 
         if mutation_rates is None:
@@ -554,37 +598,13 @@ class LearningModel:
         self.mutation_rates = mutation_rates
         self.speciation_values = speciation_values
         self.model_rates = model_rates
+        self.game_constants = game_constants
         self.pool = Pool()
         self.population = []
 
     # **********************************************************************************
-    # ******************************** Managing Library ********************************
+    # ***************************** Save and Load Tools ********************************
     # **********************************************************************************
-
-    def set_pool(self, value):
-        self.pool = value
-
-    def set_mutation_rates(self, value):
-        self.mutation_rates = value
-
-    def get_innovation(self):
-        """
-        Increments and returns the innovation number
-
-        :return:    The current innovation number
-        """
-
-        return self.pool.get_innovation()
-
-    @staticmethod
-    def sigmoid(value):
-        """
-        Returns the sigmoid of 'value'
-        :param value:   Value for sigmoid function to
-        :return:        Return sigmoid of value
-        """
-        denom = 1 + math.exp(-4.9*value)
-        return (2/denom)-1
 
     def save_generation(self, file_name):
         """
@@ -923,7 +943,7 @@ class LearningModel:
                         of the nodes in the neural network
         """
 
-        copy_genes = list.copy(genome.genes)
+        copy_genes = genome.genes
 
         adj_list = [[] for _ in range(0, genome.max_neuron)]
 
@@ -933,14 +953,18 @@ class LearningModel:
         # (As opposed to the typical (i,j) representation)
         adj_list_rev = [[] for _ in range(0, genome.max_neuron)]
 
-        sorted_list = []
+        sorted_list = [x for x in range(0, genome.num_inputs + 1)]
         cur_list = []
         next_list = []
 
         # Fills the two adjacency lists with the edges from the genes
         for gene in copy_genes:
-            adj_list_rev[gene.into].append(gene.out)
-            adj_list[gene.out].append(gene.into)
+            # We already know the ordering of the input, bias, and output nodes
+            # so links to them do not provide insight into the topological ordering
+            if ((not gene.out <= genome.num_inputs + genome.num_outputs) &
+               (not gene.into <= genome.num_inputs + genome.num_outputs)):
+                adj_list_rev[gene.into].append(gene.out)
+                adj_list[gene.out].append(gene.into)
 
         # Creates the initial list from the nodes with no incoming edges
         # There is required to be at least one or the neural network is invalid
@@ -969,7 +993,39 @@ class LearningModel:
                 cur_list = next_list
                 next_list = []
 
+        # Add the output nodes to the ordering
+        sorted_list.extend([y for y in range(genome.num_inputs + 1,
+                                             genome.num_inputs + genome.num_outputs + 1)])
         return sorted_list
+
+    # **********************************************************************************
+    # ******************************** Managing Library ********************************
+    # **********************************************************************************
+
+    def set_pool(self, value):
+        self.pool = value
+
+    def set_mutation_rates(self, value):
+        self.mutation_rates = value
+
+    def next_innovation(self):
+        """
+        Increments and returns the innovation number
+
+        :return:    The current innovation number
+        """
+
+        return self.pool.get_innovation()
+
+    @staticmethod
+    def sigmoid(value):
+        """
+        Returns the sigmoid of 'value'
+        :param value:   Value for sigmoid function to
+        :return:        Return sigmoid of value
+        """
+        denom = 1 + math.exp(-4.9*value)
+        return (2/denom)-1
 
     def copy_genome(self, genome):
         """
@@ -1012,15 +1068,9 @@ class LearningModel:
         :return:            Returns a deep copy of the mutation rates
         """
 
-        copy = MutationRates()
-        copy.connection = mut_rates.connection
-        copy.link = mut_rates.link
-        copy.bias = mut_rates.bias
-        copy.node = mut_rates.node
-        copy.enable = mut_rates.enable
-        copy.disable = mut_rates.disable
-        copy.step = mut_rates.step
-        return copy
+        copy_mut = MutationRates(mut_rates.connection, mut_rates.link, mut_rates.bias,
+                                 mut_rates.node, mut_rates.enable, mut_rates.disable, mut_rates.step)
+        return copy_mut
 
     def copy_network(self, network):
         """
@@ -1126,8 +1176,7 @@ class LearningModel:
         :return:        A default genome with no connections
         """
         genome = Genome(None, 0, 0, None, inputs + 1, outputs, inputs + outputs + 1,
-                        0, self.copy_mutation_rates(self.mutation_rates), None)
-
+                        0, 0, self.copy_mutation_rates(self.mutation_rates), None)
         return genome
 
     def basic_genome_connected(self, inputs, outputs):
@@ -1195,22 +1244,7 @@ class LearningModel:
 
         while mutation_rate > 0:
             if random.random() < mutation_rate:
-
-                random_list = [x for x in range(0, len(genome.max_neuron)-1)]
-                random_node1 = random.randint(0,len(random_list))
-                random_list.remove(random_node1)
-                random_node2 = random.randint(0,len(random_list))
-
-                # Ensures there are no recurrent connections
-                if (genome.topological_order.index(random_node1) >
-                        genome.topological_order.index(random_node2)):
-                    temp = random_node1
-                    random_node1 = random_node2
-                    random_node2 = temp
-
-                random_num = (random.random()*4)-2
-                new_gene = Gene(random_node2, random_node1, random_num, True, self.get_innovation)
-                genome.genes.append(new_gene)
+                genome.mutate_connection(self.next_innovation())
 
     def mutate_node(self, genome):
         """
@@ -1226,21 +1260,7 @@ class LearningModel:
 
         while mutation_rate > 0:
             if random.random() < mutation_rate:
-                old_gene = genome.genes[random.randint(0, len(genome.genes)) - 1]
-
-                # Ensures that the gene chosen is enabled and not connected to a bias node
-                if old_gene.enabled & (not old_gene.out == genome.num_inputs):
-
-                    # The connection into the new node has a weight of 1 while the connection into
-                    # the old_gene's into node receives the old_gene's weight.
-                    # This minimizes the immediate effect on the networks fitness
-                    gene_split1 = Gene(genome.max_neuron, old_gene.out, 1.0, True, 0)
-                    gene_split2 = Gene(old_gene.into, genome.max_neuron, old_gene.weight, True, 0)
-
-                    old_gene.enabled = False
-
-                    genome.genes.append(gene_split1)
-                    genome.genes.append(gene_split2)
+                genome.mutate_node(self.next_innovation(), self.next_innovation())
 
     def mutate_weights(self, genome):
         """
@@ -1464,9 +1484,11 @@ class LearningModel:
 
         for genome_num in range(0, pop_size):
             if is_connected:
-                self.population.append(self.basic_genome_connected(input_size, output_size))
+                new_genome = self.basic_genome_connected(input_size, output_size)
             else:
-                self.population.append(self.basic_genome(input_size, output_size))
+                new_genome = self.basic_genome(input_size, output_size)
+            self.mutate(new_genome)
+            self.population.append(new_genome)
 
     # TODO
     def run_simulation(self, num_generations):
@@ -1618,7 +1640,6 @@ class LearningModel:
 
         return species.genomes[len(fitness) - 1]
 
-    # TODO Add random gene selection between genomes with equal fitness
     def crossover_genes(self, genome1, genome2):
         """
         Combines two genomes into a new genome with all of the superior fitnesses'
@@ -1635,10 +1656,9 @@ class LearningModel:
             genome2 = temp
 
         new_genome = self.copy_genome(genome1)
-        new_genome.num_inputs = genome1.num_inputs
-        new_genome.num_outputs = genome1.num_outputs
+        new_genome.network = []
         new_genome.max_neuron = max(genome1.max_neuron, genome2.max_neuron)
-        new_genome.mutation_rates = self.copy_mutation_rates(genome1.mutation_rates)
+        new_genome.max_innovation = max(genome1.max_innovation, genome2.max_innovation)
 
         innovations = [[] in range(0, self.pool.innovation)]
 
@@ -1649,8 +1669,9 @@ class LearningModel:
             # If the innovation does not exist in genome1 then it is either an excess
             # or disjoint gene and should be added to the new_gene
             if not innovations[gene.innovation]:
-                new_genome.add_gene(gene)
+                new_genome.crossover_add_gene(gene)
 
+        new_genome.topological_order = self.topological_sort(new_genome)
         return new_genome
 
     def cull_population(self):
@@ -1710,7 +1731,7 @@ class LearningModel:
         # Note: This algorithm allows two of the same player to be in the same game
         for game_iter in range(0, len(game_division)):
             players = []
-            for cur_player in range(0, self.model_constants.parallel_evals):
+            for cur_player in range(0, self.game_constants.players_per_game):
                 players.append(game_division[cur_player][game_iter])
             games.append(players)
 
@@ -1748,7 +1769,8 @@ class LearningModel:
         # Runs each game by facilitating the information transfer between
         # neural networks and the GameModel
         for game in games:
-            cur_game = game_gen.create_game()
+            cur_game = game_gen.create_game(self.game_constants.players_per_game,
+                                            self.game_constants.hands_per_game)
             is_game_done = False
 
             # Continually facilitate information trade, until the game ends
