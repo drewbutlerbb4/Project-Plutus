@@ -86,8 +86,6 @@ author: Andrew Butler
 # TODO MOVE MAJORITY OF HEADER DOCSTRING TO README FILE
 # TODO CREATE NEW ERRORS WHICH CAN BE REPLACED FOR THE NotImplemented
 # TODO ADD DROPOUT NEURONS (FROM DATASKEPTIC PODCAST)
-# TODO LIST OF MUTATIONS IN CURRENT GENERATIONS TO ENSURE A MUTATION
-# DOES NOT APPEAR MORE THAN ONCE
 # TODO FOR FUTURE: REMOVE STALE SPECIES AND REPLACE WITH BASIC GENOMES
 # TO FACILITATE RANDOM RESTARTING WHEN THE POPULATION STALES OUT
 # TODO Make networks updatable so that they are not constantly recreated
@@ -104,21 +102,36 @@ class Pool:
     generation:     The number of iterations of generations that
                     this pool has already undergone
     innovation:     The next unused value to be given to an innovation
+    node_innovation:The next unused value to be given to a node innovation
     current_species:The current species being evaluated
     current_genome: The current genome being evaluated
     max_fitness:    The maximum fitness for any genome in the pool
+    node_history:   List of ((node_innov1, node_innov2), new_innov) where
+                    node_innov1 is the out of node and node_innov2 is the into node
+                    where we placed a new node of new_innov
+    gene_history:   List of ((node_innov1, node_innov2), new_innov) where
+                    node_innov1 is the out of node and node_innov2 is the into node
+                    where we placed a connection of new_innov
     """
 
-    def __init__(self, species=None, generation=0, innovation=0, current_species=0,
-                 current_genome=0, max_fitness=0):
+    def __init__(self, species=None, generation=0, innovation=0, node_innovation=0,
+                 current_species=0, current_genome=0, max_fitness=0, node_history=None,
+                 gene_history=None):
         if species is None:
             species = []
+        if node_history is None:
+            node_history = {}
+        if gene_history is None:
+            gene_history = {}
         self.species = species
         self.generation = generation
         self.innovation = innovation
+        self.node_innovation = node_innovation
         self.current_species = current_species
         self.current_genome = current_genome
         self.max_fitness = max_fitness
+        self.node_history = node_history
+        self.gene_history = gene_history
 
     def to_string(self):
         """
@@ -150,6 +163,17 @@ class Pool:
 
         to_return = self.innovation
         self.innovation += 1
+        return to_return
+
+    def get_node_innovation(self):
+        """
+        Increments and returns the node innovation number
+
+        :return:    The current node innovation number
+        """
+
+        to_return = self.node_innovation
+        self.node_innovation += 1
         return to_return
 
 
@@ -223,10 +247,10 @@ class Genome:
         if mutation_rates is None:
             mutation_rates = MutationRates()
         if topological_order is None:
-            topological_order = []
-            # topological_order = random.sample(range(0, num_inputs), num_inputs)
-            # outputs = random.sample(range(num_inputs, num_inputs + num_outputs))
-            # topological_order.extend(outputs)
+            topological_order = random.sample(range(0, num_inputs + 1), num_inputs + 1)
+            outputs = random.sample(range(num_inputs + 1,
+                                          num_inputs + num_outputs + 1), num_outputs)
+            topological_order.extend(outputs)
 
         self.genes = genes
         self.fitness = fitness
@@ -249,24 +273,23 @@ class Genome:
 
         self.genes.append(gene)
 
-    def mutate_connection(self, innovation_num):
+    def mutate_connection(self, pool):
         """
         Adds a gene to the genome randomly and changes the necessary
         parameters associated
         """
 
         random_list = copy.deepcopy(self.topological_order)
-        random_node1 = random.randint(0, len(random_list))
-        # If we chose a input, bias, or output node don't allow us to do that in the
-        # second choice
+        random_node1 = random_list[random.randint(0, len(random_list) - 1)]
+        # If we chose a input or bias, don't let us do that for the second choice
         if random_node1 <= self.num_inputs:
-            holder = self.topological_order[self.num_inputs + 1:]
-            random_list = copy.deepcopy(holder)
+            random_list = random_list[self.num_inputs + 1:]
+        # If we chose output, don't let us do that for the second choice
         elif random_node1 <= self.num_inputs + self.num_outputs + 1:
-            holder = self.topological_order[: len(self.topological_order) - self.num_outputs - 1]
-            random_list = copy.deepcopy(holder)
+            random_list = random_list[: len(random_list) - self.num_outputs - 1]
+        else:
+            random_list.remove(random_node1)
 
-        random_list.remove(random_node1)
         random_node2 = random.randint(0, len(random_list))
 
         node1_index = (self.topological_order.index(random_node1)
@@ -281,12 +304,23 @@ class Genome:
             random_node1 = random_node2
             random_node2 = temp
 
+        # Checks if this gene has been mutated before
+        does_gene_exist = pool.node_history.get((random_node1, random_node2))
+
+        if does_gene_exist is None:
+            innovation_num = pool.get_innovation()
+        else:
+            innovation_num = does_gene_exist
+
+        pool.gene_history[(random_node2, random_node1)] = innovation_num
+
         random_num = (random.random() * 4) - 2
         new_gene = Gene(random_node2, random_node1, random_num, True, innovation_num)
         self.max_innovation += 1
         self.genes.append(new_gene)
 
-    def mutate_node(self, innovation_num1, innovation_num2):
+    # TODO Add a "shuffle topology" where we recalculate the topology to change poset
+    def mutate_node(self, pool):
         """
         Adds two genes to the genomes where one used to be. Updates class values as
         needed
@@ -299,13 +333,54 @@ class Genome:
                 enabled_genes.append(gene)
 
         old_gene = enabled_genes[random.randint(0, len(enabled_genes)) - 1]
+        does_node_exist = pool.node_history.get((old_gene.into, old_gene.out))
+
+        # Checks for this node in the pool's history of node mutations
+        # and adds to the pool's history if necessary
+        if does_node_exist is None:
+            new_node_innov = pool.get_node_innovation()
+            pool.node_history[(old_gene.into, old_gene.out)] = new_node_innov
+            innovation_num1 = pool.get_innovation()
+            innovation_num2 = pool.get_innovation()
+            pool.gene_history[(new_node_innov, old_gene.out)] = innovation_num1
+            pool.gene_history[(old_gene.into, new_node_innov)] = innovation_num2
+        else:
+            new_node_innov = does_node_exist
+            first_gene = pool.gene_history[(new_node_innov, old_gene.out)]
+            second_gene = pool.gene_history[(old_gene.into, new_node_innov)]
+            if first_gene is None:
+                innovation_num1 = pool.get_innovation()
+                pool.gene_history[(new_node_innov,
+                                        old_gene.out)] = innovation_num1
+            if second_gene is None:
+                innovation_num2 = pool.get_innovation()
+                pool.gene_history[(old_gene.into,
+                                        new_node_innov)] = innovation_num2
 
         # The connection into the new node has a weight of 1 while the connection into
         # the old_gene's into node receives the old_gene's weight.
         # This minimizes the immediate effect on the networks fitness
-        gene_split1 = Gene(self.max_neuron, old_gene.out, 1.0, True, innovation_num1)
-        gene_split2 = Gene(old_gene.into, self.max_neuron, old_gene.weight,
+        gene_split1 = Gene(new_node_innov, old_gene.out, 1.0, True, innovation_num1)
+        gene_split2 = Gene(old_gene.into, new_node_innov, old_gene.weight,
                            True, innovation_num2)
+
+        # Markers for the end of the inputs and the start of the outputs
+        not_before = self.num_inputs + 1
+        not_after = len(self.topological_order) - self.num_outputs - 1
+
+        # Checks for further restrictions on the topological placement of our new node
+        if old_gene.out > not_before:
+            not_before = old_gene.out + 1
+        if old_gene.into < not_after:
+            not_after = old_gene.into - 1
+
+        # In case of the connection being between nodes next to each other in topology
+        if not_before > not_after:
+            placement = old_gene.out + 1
+        else:
+            placement = random.randint(not_before, not_after)
+
+        self.topological_order.insert(placement, self.max_neuron)
 
         old_gene.enabled = False
         self.max_neuron += 1
@@ -599,7 +674,8 @@ class LearningModel:
         self.speciation_values = speciation_values
         self.model_rates = model_rates
         self.game_constants = game_constants
-        self.pool = Pool()
+        innovation_start = model_constants.inputs + model_constants.outputs + 1
+        self.pool = Pool(innovation=innovation_start)
         self.population = []
 
     # **********************************************************************************
@@ -1008,15 +1084,6 @@ class LearningModel:
     def set_mutation_rates(self, value):
         self.mutation_rates = value
 
-    def next_innovation(self):
-        """
-        Increments and returns the innovation number
-
-        :return:    The current innovation number
-        """
-
-        return self.pool.get_innovation()
-
     @staticmethod
     def sigmoid(value):
         """
@@ -1244,7 +1311,8 @@ class LearningModel:
 
         while mutation_rate > 0:
             if random.random() < mutation_rate:
-                genome.mutate_connection(self.next_innovation())
+                genome.mutate_connection(self.pool)
+            mutation_rate -= 1
 
     def mutate_node(self, genome):
         """
@@ -1260,7 +1328,8 @@ class LearningModel:
 
         while mutation_rate > 0:
             if random.random() < mutation_rate:
-                genome.mutate_node(self.next_innovation(), self.next_innovation())
+                genome.mutate_node(self.pool)
+            mutation_rate -= 1
 
     def mutate_weights(self, genome):
         """
@@ -1316,9 +1385,11 @@ class LearningModel:
             if gene.enabled == is_enable:
                 choices.append(gene)
 
-        random_num = random.randint(0, len(choices) - 1)
-        choices[random_num].enabled = not is_enable
+        if len(choices) > 0:
+            random_num = random.randint(0, len(choices))
+            choices[random_num].enabled = not is_enable
 
+    # TODO CHANGE MUTATE BIAS TO ACTUALLY WORK
     def mutate_bias(self, genome):
         """
         Adds a connection between the bias node and one other non-input
@@ -1395,7 +1466,9 @@ class LearningModel:
             new_specie.genomes = species_pop[cur_species]
             new_species_list.append(new_specie)
 
-        pool = Pool(new_species_list, self.pool.generation, self.pool.innovation, 0, 0, 0)
+        pool = Pool(new_species_list, self.pool.generation, self.pool.innovation,
+                    self.pool.node_innovation, 0, 0, 0, self.pool.node_history,
+                    self.pool.gene_history)
 
         return pool
 
@@ -1500,6 +1573,8 @@ class LearningModel:
 
     # TODO
     def run_generation(self):
+
+        print("Gen")
 
         self.pool = self.speciate_population(self.pool.species)
         self.score_genomes()
