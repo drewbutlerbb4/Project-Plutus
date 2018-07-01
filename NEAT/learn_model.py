@@ -4,94 +4,9 @@ Continually builds and expands on neural nets in an attempt to build
 a neural net to interpret the movement of the solution space from the
 data provided
 
-Methods Employed:
-The neural networks are basic feedforward artificial neural networks
-The neural network manipulation algorithm is based off of a paper
-written by Kenneth O. Stanley and Risto Miikkulainen by the name
-of NEAT (NeuroEvolution of Augmenting Topologies). This system is
-interesting to us as it is possible to 'optimize and complexify solutions
-simultaneously.' Inspiration for this comes from SethBling and his
-MarI/O.
-
-Documentation Points:
-1.  The file format for saving and restoring generations is described below
-    The format is JSON inspired with implicit attributes based on the structure of
-    the developed classes. This sacrifices readability in order to decrease
-    file size by a factor of at least 2:1 (less conservative estimates suggest
-    closer to a factor 4:1).
-
-    Files will begin with '{' and end with '}' and will encompass exactly one pool
-    A default pool will look as follows '{[],0,0,0,0,0}'
-
-    A pool with one species with one genome with one default gene
-    will look as follows
-    '{[{0,0,[{[{0,0,0,F,0}],0,0,0,0,0,0,0;0;0;0;0;0;0}],0}],0,0,0,0,0}'
-
-    One important note is that the network attribute of the Genome class will
-    always be absent from this file. Storing the network class would be
-    redundant and we currently value efficient memory usage over redundancy.
-    The purpose of this file structure is decreased readability, in order to
-    conserve the limited memory we have available to us.
-    Files of this type will be marked .ion for Implicit Object Notation.
-2.  After thorough testing it has been confirmed that the line
-    'actualized_pool = self.actualize_objects(file_contents, labels, file_structure)'
-    in the function restore_generation does in fact return values, despite what the
-    warning says. This warning seems to stem from the fact that the initial values
-    of finished_objects are set to 'None', because when these values are changed to
-    0 the warning disappears. More information needs to be collected on this, as of
-    now it is being marked as a minor bug.
-3.  Two adjacency lists were used to represent the graph. For one adjacency list
-    at index i there were a list of elements such that any element j in that list
-    represents an edge (i,j) in the graph. In the second adjacency list at index i
-    there was a list of elements such that any element j in that list represents an
-     edge (j,i) in the graph. In comparison to a single adjacency list, this has the
-     advantage of improving the average case run time. For a single adjacency list
-     the best, average, and worse case search time for either incoming or outgoing
-     nodes (depending on which direction on the adjacency lists' implementation)
-     is O(E). For a double adjacency list the best case search time is O(1) and the
-     average case search time depends on the sparsity of the directed acyclic graph,
-     but can be no worse O(E). Having twice the adjacency lists comes with the obvious
-     side-effect of double the space complexity. Using two adjacency lists has
-     the advantage of saving space, as an adjacency matrix costs O(V^2) whereas an
-     adjacency list costs O(V*E). On top of that searching for all the edges off of
-     a node takes best, average, and worst case O(E), whereas the double adjacency
-     list does better than that (as discussed before)
-4.  I tried to find literature about the most meaningful way to select individuals
-    to engage in crossover given speciation information, but was unable to find anything.
-    After consideration I have chosen to allow crossover between any two individuals
-    in the population. The reason is this, forcing crossover between individuals of the
-    same species would mean that we would more efficiently find the local optimum that the
-    species is converging too, but we will likely miss out on any optimum that are mixtures
-    of functionality across species. Specifically, forcing crossover intra-species
-    means that we converge to local optimum faster, but since the so called "Pareto Front"
-    we maintain is actually a subset of the Pareto Front we are more likely to miss out on
-    the global optimum.
-
-Ideas Used:
-1.  NEAT (obvious)
-2.  Kahn's Topological Sort (Topological ordering of genes)
-3.  Fitness Proportionate Selection
-4.  Implicit Object Notation (File storage)
-5.  Niching or Speciation which is inherent in NEAT
-6.  Generative Adversarial Networks
-7.  Layers of Abstraction (Truthfully, this component was not
-    needed, but I wanted practice)(This is seen in using
-    GameModel's to hide the underlying neural networks)
-
-
 author: Andrew Butler
 """
 
-# TODO REVISE DOCSTRING TO INCLUDE PROOF OF WORST CASE DENSITY IN A DAG
-# TODO MOVE MAJORITY OF HEADER DOCSTRING TO README FILE
-# TODO CREATE NEW ERRORS WHICH CAN BE REPLACED FOR THE NotImplemented
-# TODO ADD DROPOUT NEURONS (FROM DATASKEPTIC PODCAST)
-# TODO FOR FUTURE: REMOVE STALE SPECIES AND REPLACE WITH BASIC GENOMES
-# TO FACILITATE RANDOM RESTARTING WHEN THE POPULATION STALES OUT
-# TODO Make networks updatable so that they are not constantly recreated
-# TODO Networks can remake connections that have been disabled, this is a bug
-# TODO Redudant holding of topological_order in genome and network this may be a feature
-#           or a bug, more deliberation on that topic needed
 import math
 import random
 import copy
@@ -171,21 +86,78 @@ def topological_sort(genome):
     return sorted_list
 
 
-# TODO Fix overlap between this and internal function
-def copy_gene(self, gene):
+def copy_genome(genome):
+    """
+    Deep copy of 'genome'
+    :param genome:  Genome to be copied
+    :return:        Returns a deep copy of the genome
+    """
+
+    genome_copy = Genome()
+    for gene in genome.genes:
+        genome_copy.genes.append(copy_gene(gene))
+    genome_copy.shared_fitness = genome.shared_fitness
+    genome_copy.fitness = genome.fitness
+    genome_copy.global_rank = genome.global_rank
+    genome_copy.mutation_rates = copy_mutation_rates(genome.mutation_rates)
+    genome_copy.network = copy_network(genome.network)
+    genome_copy.topological_order = copy.deepcopy(genome.topological_order)
+    return genome_copy
+
+
+def copy_gene(gene):
     """
     Deep copy of 'gene'
     :param gene:    Gene to be copied
     :return:        Returns a deep copy of the gene
     """
 
-    copy_gene = Gene()
-    copy_gene.into = gene.into
-    copy_gene.out = gene.out
-    copy_gene.weight = gene.weight
-    copy_gene.enabled = gene.enabled
-    copy_gene.innovation = gene.innovation
-    return copy_gene
+    gene_copy = Gene()
+    gene_copy.into = gene.into
+    gene_copy.out = gene.out
+    gene_copy.weight = gene.weight
+    gene_copy.enabled = gene.enabled
+    gene_copy.innovation = gene.innovation
+    return gene_copy
+
+
+def copy_mutation_rates(mut_rates):
+    """
+    Deep copy of 'mut_rates'
+    :param mut_rates:   Rates of Mutation to be copied
+    :return:            Returns a deep copy of the mutation rates
+    """
+
+    copy_mut = MutationRates(mut_rates.connection, mut_rates.link, mut_rates.bias,
+                             mut_rates.node, mut_rates.enable, mut_rates.disable, mut_rates.step)
+    return copy_mut
+
+
+def copy_network(network):
+    """
+    Deep copy of 'network'
+    :param network:     Network to be copied
+    :return:            Returns a deep copy of the mutation rates
+    """
+
+    network_copy = Network()
+    for neuron in network.neurons:
+        network_copy.neurons.append(copy_neuron(neuron))
+    network_copy = copy.deepcopy(network.topological_order)
+    network_copy.num_inputs = network.num_inputs
+    network_copy.num_outputs = network.num_outputs
+    return network_copy
+
+
+def copy_neuron(neuron):
+
+    neuron_copy = Neuron(neuron.label)
+    neuron_copy.incoming_neurons = copy.deepcopy(neuron.incoming_neurons)
+    neuron_copy.weights = copy.deepcopy(neuron.weights)
+    neuron_copy.value = neuron.value
+
+    return neuron_copy
+
 
 # **********************************************************************************
 # ***************************** Class Definitions*** *******************************
@@ -373,7 +345,6 @@ class Genome:
 
         self.genes.append(gene)
 
-    #TODO Can create connection from a node to itself
     def mutate_connection(self, pool):
         """
         Adds a gene to the genome randomly and changes the necessary
@@ -425,7 +396,6 @@ class Genome:
         new_gene = Gene(random_node2, random_node1, random_num, True, innovation_num)
         self.genes.append(new_gene)
 
-    # TODO Add a "shuffle topology" where we recalculate the topology to change poset
     def mutate_node(self, pool):
         """
         Adds two genes to the genomes where one used to be. Updates class values as
@@ -462,13 +432,13 @@ class Genome:
             if first_gene is None:
                 innovation_num1 = pool.get_innovation()
                 pool.gene_history[(new_node_innov,
-                                        old_gene.out)] = innovation_num1
+                                   old_gene.out)] = innovation_num1
             else:
                 innovation_num1 = first_gene
             if second_gene is None:
                 innovation_num2 = pool.get_innovation()
                 pool.gene_history[(old_gene.into,
-                                        new_node_innov)] = innovation_num2
+                                   new_node_innov)] = innovation_num2
             else:
                 innovation_num2 = second_gene
 
@@ -669,7 +639,6 @@ class MutationRates:
         return to_return
 
 
-# TODO Utilize the parallel_evals variable to run multiple games at the same time
 class ModelConstants:
     """
     Constants that describe the model
@@ -822,7 +791,6 @@ class LearningModel:
         file_write.write(to_file_write)
         return to_file_write
 
-    # TODO Figure out actualized_pool warning
     def restore_generation(self, file_name):
         """
         Restores a generation from a file. This file must follow the
@@ -1148,75 +1116,6 @@ class LearningModel:
         denom = 1 + math.exp(-4.9*value)
         return (2/denom)-1
 
-    def copy_genome(self, genome):
-        """
-        Deep copy of 'genome'
-        :param genome:  Genome to be copied
-        :return:        Returns a deep copy of the genome
-        """
-
-        genome_copy = Genome()
-        for gene in genome.genes:
-            genome_copy.genes.append(self.copy_gene(gene))
-        genome_copy.shared_fitness = genome.shared_fitness
-        genome_copy.fitness = genome.fitness
-        genome_copy.global_rank = genome.global_rank
-        genome_copy.mutation_rates = self.copy_mutation_rates(genome.mutation_rates)
-        genome_copy.network = self.copy_network(genome.network)
-        genome_copy.topological_order = copy.deepcopy(genome.topological_order)
-        return genome_copy
-
-    def copy_gene(self, gene):
-        """
-        Deep copy of 'gene'
-        :param gene:    Gene to be copied
-        :return:        Returns a deep copy of the gene
-        """
-
-        copy_gene = Gene()
-        copy_gene.into = gene.into
-        copy_gene.out = gene.out
-        copy_gene.weight = gene.weight
-        copy_gene.enabled = gene.enabled
-        copy_gene.innovation = gene.innovation
-        return copy_gene
-
-    def copy_mutation_rates(self, mut_rates):
-        """
-        Deep copy of 'mut_rates'
-        :param mut_rates:   Rates of Mutation to be copied
-        :return:            Returns a deep copy of the mutation rates
-        """
-
-        copy_mut = MutationRates(mut_rates.connection, mut_rates.link, mut_rates.bias,
-                                 mut_rates.node, mut_rates.enable, mut_rates.disable, mut_rates.step)
-        return copy_mut
-
-    def copy_network(self, network):
-        """
-        Deep copy of 'network'
-        :param network:     Network to be copied
-        :return:            Returns a deep copy of the mutation rates
-        """
-
-        network_copy = Network()
-        for neuron in network.neurons:
-            network_copy.neurons.append(self.copy_neuron(neuron))
-        network_copy = copy.deepcopy(network.topological_order)
-        network_copy.num_inputs = network.num_inputs
-        network_copy.num_outputs = network.num_outputs
-        return network_copy
-
-    def copy_neuron(self, neuron):
-
-        neuron_copy = Neuron()
-        neuron_copy.label = neuron.label
-        neuron_copy.incoming_neurons = copy.deepcopy(neuron.incoming_neurons)
-        neuron_copy.weights = copy.deepcopy(neuron.weights)
-        neuron_copy.value = neuron.value
-
-        return neuron_copy
-
     def create_network(self, genome):
         """
         Creates and returns the network that is
@@ -1256,7 +1155,6 @@ class LearningModel:
 
         return network
 
-    # TODO TEST EVALUATE_NEURON_VALUES (CURRENTLY UNTESTED
     def evaluate_neuron_values(self, network, inputs):
         """
         Assigns a value to each neuron based on the structure
@@ -1302,7 +1200,7 @@ class LearningModel:
         :return:        A default genome with no connections
         """
         genome = Genome(None, 0, 0, None, inputs + 1, outputs, inputs + outputs + 1,
-                        0, 0, self.copy_mutation_rates(self.mutation_rates), None)
+                        0, 0, copy_mutation_rates(self.mutation_rates), None)
         return genome
 
     def basic_genome_connected(self, inputs, outputs):
@@ -1448,7 +1346,6 @@ class LearningModel:
             random_num = random.randint(0, len(choices))
             choices[random_num].enabled = not is_enable
 
-    # TODO CHANGE MUTATE BIAS TO ACTUALLY WORK
     def mutate_bias(self, genome):
         """
         Adds a connection between the bias node and one other non-input
@@ -1482,7 +1379,6 @@ class LearningModel:
     # ****************************** Speciation Functions ******************************
     # **********************************************************************************
 
-    # TODO UPDATE FITNESS SCORING TO ACCOUNT FOR STALENESS
     def speciate_population(self, species_list):
         """
         Creates a new pool that contains the speciated population from
@@ -1541,8 +1437,6 @@ class LearningModel:
 
         return pool
 
-    # TODO Create proof as to why normalizing on Total number of genes is better
-    # than normalizing on number of genes in the larger genome
     def compatibility_difference(self, genome1, genome2):
         """
         Finds the compatibility difference between two genomes.
@@ -1649,7 +1543,6 @@ class LearningModel:
             self.mutate(new_genome)
             self.population.append(new_genome)
 
-    # TODO
     def run_simulation(self, num_generations):
 
         self.create_population(False)
@@ -1657,7 +1550,6 @@ class LearningModel:
         for generation in range(0, num_generations):
             self.run_generation()
 
-    # TODO
     def run_generation(self):
 
         self.pool = self.speciate_population(self.pool.species)
@@ -1746,7 +1638,7 @@ class LearningModel:
 
         # Make these deep copies, because we will use the others later
         for shallow_copy in top_x_genomes:
-            deep_top_x_genomes(self.copy_genome(shallow_copy))
+            deep_top_x_genomes(copy_genome(shallow_copy))
 
         return deep_top_x_genomes
 
@@ -1814,7 +1706,7 @@ class LearningModel:
             genome1 = genome2
             genome2 = temp
 
-        new_genome = self.copy_genome(genome1)
+        new_genome = copy_genome(genome1)
         new_genome.network = []
 
         innovations = [[] in range(0, self.pool.innovation)]
@@ -1866,8 +1758,6 @@ class LearningModel:
     # ***************************** Fitness Scoring ************************************
     # **********************************************************************************
 
-    # TODO DIVIDE INTO MODELCONSTANTS.X NUMBER OF GAMES OF MUDELCONSTANT.PARALLEL_EVAL
-    # TODO NETWORKS AND EVALUATE EACH NETWORKS FITNESS BASED ON GAMES
     def score_genomes(self):
         """
         Splits all of the genomes into games based on what GameConstants have been decided
