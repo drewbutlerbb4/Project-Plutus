@@ -11,6 +11,9 @@ Methods Employed:
 The neural networks are basic feedforward artificial neural networks. The neural network manipulation algorithm is based off of a paper written by Kenneth O. Stanley and Risto Miikkulainen by the name of NeuroEvolution of Augmenting Topologies (NEAT). This system is interesting as it is possible to 'optimize and complexify solutions simultaneously. Inspiration for this comes from SethBling and his MarI/O.
 
 Documentation Points:
+
+### Warning: Information point one will be reworked and is currently left as a similar guideline
+
 1.  The file format for saving and restoring generations is described below. The format is JSON inspired with implicit attributes based on the structure of the developed classes. This sacrifices readability in order to decrease file size by a factor of at least 2:1 (less conservative estimates seems closer to a factor 4:1).
 
 Files will begin with '{' and end with '}' and will encompass exactly one pool. A default pool will look as follows '{[],0,0,0,0,0}'
