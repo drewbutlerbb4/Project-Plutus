@@ -13,9 +13,6 @@ import random
 from game_model import GameModel
 
 
-# TODO BUGS (Fix after exams)
-# TODO Freezes when a person reaches 0 chips
-# TODO Ties make chips disappear under certain niche situations
 class PokerGame(GameModel):
     """
     total_hands:    Number of hands to be played before the game is stopped
@@ -135,12 +132,13 @@ class PokerGame(GameModel):
         if not count == 800:
             raise NotImplementedError("WHY")
 
-    # TODO Need to include bet history to have complete information
     def send_inputs(self):
         """
         Compiles information about the current game state and returns it
 
         :return:    Complete information (hopefully) about the game state
+                    In its current states, it does not currently return the
+                    past hand history and past bet history in this hand
         """
 
         # Doesn't allow this method if the game is over
