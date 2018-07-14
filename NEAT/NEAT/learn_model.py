@@ -1199,8 +1199,8 @@ class LearningModel:
         :param outputs: The number of output variables for the neural network
         :return:        A default genome with no connections
         """
-        genome = Genome(None, 0, 0, None, inputs + 1, outputs, inputs + outputs + 1,
-                        0, 0, copy_mutation_rates(self.mutation_rates), None)
+        genome = Genome(None, 0, 0, None, inputs, outputs, 0,
+                        copy_mutation_rates(self.mutation_rates), None)
         return genome
 
     def basic_genome_connected(self, inputs, outputs):

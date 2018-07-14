@@ -1,5 +1,5 @@
-from game_generator import GameGenerator
-from poker_model import PokerGame
+from NEAT.game_generators.game_generator import GameGenerator
+from NEAT.game_models.poker_model import PokerGame
 
 
 class PokerGenerator(GameGenerator):

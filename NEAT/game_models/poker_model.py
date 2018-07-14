@@ -10,7 +10,7 @@ hands, the game will stop and the fitness of every player will be available for
 the learning model to take
 """
 import random
-from game_model import GameModel
+from NEAT.game_models.game_model import GameModel
 
 
 class PokerGame(GameModel):
