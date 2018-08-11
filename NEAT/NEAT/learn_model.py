@@ -1,20 +1,21 @@
 """
 LearningModel is class that is used to make a model that
-Continually builds and expands on neural nets in an attempt to build
+continually builds and expands on neural nets in an attempt to build
 a neural net to interpret the movement of the solution space from the
 data provided
 
 author: Andrew Butler
 """
-
 import math
 import random
 import copy
-
+import json
+# TODO REMOVE json
 
 # **********************************************************************************
 # ***************************** Management Functions *******************************
 # **********************************************************************************
+
 
 def topological_sort(genome):
     """
@@ -28,19 +29,32 @@ def topological_sort(genome):
                     of the nodes in the neural network
     """
 
-    copy_genes = []
-    for gene in genome.genes:
-        copy_genes.append(copy_gene(gene))
+    if not genome.genes:
+        topological_order = [x for x in range(0, genome.num_inputs + 1)]
 
-    adj_list = [[] for _ in range(0, len(genome.topological_order))]
+        # Add the output nodes to the ordering
+        topological_order.extend([y for y in range(genome.num_inputs + 1,
+                                                   genome.num_inputs + genome.num_outputs + 1)])
+        return topological_order
+
+    copy_genes = genome.genes
+    node_innovs = set()
+    for gene in copy_genes:
+        if not (gene.out <= genome.num_inputs + genome.num_outputs):
+            node_innovs.add(gene.out)
+        if not (gene.into <= genome.num_inputs + genome.num_outputs):
+            node_innovs.add(gene.into)
+    node_innovs = list(node_innovs)
+
+    adj_list = [[] for _ in range(0, len(node_innovs))]
 
     # This adjacency list is atypical in that at each index i
     # there is a list of indices such that each element j
     # in that list denotes an edge (j,i) in the graph.
     # (As opposed to the typical (i,j) representation)
-    adj_list_rev = [[] for _ in range(0, len(genome.topological_order))]
+    adj_list_rev = [[] for _ in range(0, len(node_innovs))]
 
-    sorted_list = [x for x in range(0, genome.num_inputs + 1)]
+    sorted_list = []
     cur_list = []
     next_list = []
 
@@ -50,12 +64,12 @@ def topological_sort(genome):
         # so links to them do not provide insight into the topological ordering
         if ((not gene.out <= genome.num_inputs + genome.num_outputs) &
                 (not gene.into <= genome.num_inputs + genome.num_outputs)):
-            adj_list_rev[gene.into].append(gene.out)
-            adj_list[gene.out].append(gene.into)
+            adj_list_rev[node_innovs.index(gene.into)].append(node_innovs.index(gene.out))
+            adj_list[node_innovs.index(gene.out)].append(node_innovs.index(gene.into))
 
     # Creates the initial list from the nodes with no incoming edges
     # There is required to be at least one or the neural network is invalid
-    for node_num in range(0, len(genome.topological_order)):
+    for node_num in range(0, len(node_innovs)):
         if not adj_list_rev[node_num]:
             cur_list.append(node_num)
 
@@ -80,10 +94,93 @@ def topological_sort(genome):
             cur_list = next_list
             next_list = []
 
+    return_list = [x for x in range(0, genome.num_inputs + 1)]
+    for node in sorted_list:
+        return_list.append(node_innovs[node])
+
     # Add the output nodes to the ordering
-    sorted_list.extend([y for y in range(genome.num_inputs + 1,
+    return_list.extend([y for y in range(genome.num_inputs + 1,
                                          genome.num_inputs + genome.num_outputs + 1)])
-    return sorted_list
+    return return_list
+
+
+def sigmoid(value):
+    """
+    Returns the sigmoid of 'value'
+    :param value:   Value for sigmoid function to
+    :return:        Return sigmoid of value
+    """
+    denom = 1 + math.exp(-4.9*value)
+    return (2/denom)-1
+
+
+def create_network(genome):
+    """
+    Creates and returns the network that is
+    modeled by 'genome'
+    :param genome:      Any instantiation of Genome
+    :return:            A network modeled by 'genome'
+    """
+
+    network = Network()
+    network.num_inputs = genome.num_inputs
+    network.num_outputs = genome.num_outputs
+    num_nodes = len(genome.topological_order)
+
+    neuron_list = []
+
+    # Appends all the neurons to the neuron_list
+    for x in range(0, num_nodes):
+        neuron_list.append(Neuron(genome.topological_order[x]))
+
+    # Creates connections between neurons based off of genes in the genome
+    for gene in genome.genes:
+        if gene.enabled:
+            cur_neuron = neuron_list[genome.topological_order.index(gene.into)]
+            cur_neuron.incoming_neurons.append(gene.out)
+            cur_neuron.weights.append(gene.weight)
+
+    network.neurons = neuron_list
+    network.topological_order = genome.topological_order[:]
+
+    return network
+
+
+def evaluate_neuron_values(network, inputs):
+    """
+    Assigns a value to each neuron based on the structure
+    of the network and the inputs that are given
+
+    :param network:     The network to be evaluated
+    :param inputs:      The set of numbers that are
+                        the values of the input neurons
+    """
+
+    # Assigns the input neurons their values
+    for input_iter in range(0, network.num_inputs):
+        network.neurons[input_iter].value = inputs[input_iter]
+
+    hidden_start = network.num_inputs + network.num_outputs + 1
+
+    # Finds out the value of every next neuron based on previous neurons'
+    # values and the structure of the graph
+    for hidden_iter in range(hidden_start, len(network.neurons)):
+        cur_node = network.neurons[hidden_iter]
+        total_value = 0
+
+        for incoming_iter in range(0, len(cur_node.incoming_neurons)):
+            cur_connection = network.topological_order.index(cur_node.incoming_neurons[incoming_iter])
+            cur_value = network.neurons[cur_connection].value
+            total_value += cur_value * cur_node.weights[incoming_iter]
+
+        cur_node.value = sigmoid(total_value)
+
+    to_return = []
+    # Collecting neural network outputs
+    for output_iter in range(network.num_inputs, network.num_inputs + network.num_outputs):
+        to_return.append(network.neurons[output_iter].value)
+
+    return to_return
 
 
 def copy_genome(genome):
@@ -93,15 +190,13 @@ def copy_genome(genome):
     :return:        Returns a deep copy of the genome
     """
 
-    genome_copy = Genome()
+    genes_copy = []
     for gene in genome.genes:
-        genome_copy.genes.append(copy_gene(gene))
-    genome_copy.shared_fitness = genome.shared_fitness
-    genome_copy.fitness = genome.fitness
-    genome_copy.global_rank = genome.global_rank
-    genome_copy.mutation_rates = copy_mutation_rates(genome.mutation_rates)
-    genome_copy.network = copy_network(genome.network)
-    genome_copy.topological_order = copy.deepcopy(genome.topological_order)
+        genes_copy.append(copy_gene(gene))
+    mut_copy = copy_mutation_rates(genome.mutation_rates)
+    genome_copy = Genome(genes=genes_copy, fitness=genome.fitness, shared_fitness=0, network=None,
+                         num_inputs=genome.num_inputs, num_outputs=genome.num_outputs, global_rank=0,
+                         mutation_rates=mut_copy, topological_order=copy.deepcopy(genome.topological_order))
     return genome_copy
 
 
@@ -143,7 +238,7 @@ def copy_network(network):
     network_copy = Network()
     for neuron in network.neurons:
         network_copy.neurons.append(copy_neuron(neuron))
-    network_copy = copy.deepcopy(network.topological_order)
+    network_copy = network.topological_order[:]
     network_copy.num_inputs = network.num_inputs
     network_copy.num_outputs = network.num_outputs
     return network_copy
@@ -292,17 +387,17 @@ class Genome:
     """
     A set of genes that together form a genome and data about it
 
-    genes:          The list of genes that represent the genome
-    network:        The actual Network representation of the genome
-                    if it has been created
-    mutation_rates: The MutationRate associated with this genome
-    fitness:        The current fitness of the genome
-    shared_fitness: The fitness when considering the species of the genome
-    num_inputs:     The number of input neurons in the genome's network
-    num_outputs:    The number of output neurons in the genome's network
-    global_rank:    The current rank of the genome
+    genes:            The list of genes that represent the genome
+    network:          The actual Network representation of the genome
+                      if it has been created
+    mutation_rates:   The MutationRate associated with this genome
+    fitness:          The current fitness of the genome
+    shared_fitness:   The fitness when considering the species of the genome
+    num_inputs:       The number of input neurons in the genome's network
+    num_outputs:      The number of output neurons in the genome's network
+    global_rank:      The current rank of the genome
     topological_order:A list that represents the topological order
-                    of the neurons
+                      of the neurons
     """
 
     def __init__(self, genes=None, fitness=0, shared_fitness=0, network=None,
@@ -310,15 +405,18 @@ class Genome:
                  mutation_rates=None, topological_order=None):
         if network is None:
             network = []
-        # If there is no starting hidden structure then set number of neurons to
-        # input+output+bias and create initial topology
+        # If there is no starting hidden structure then create initial topology
+        # from only inputs, outputs, and bias. Else if there is an initial
+        # structure, but no topological order then we need to find one
         if genes is None:
             genes = []
             if topological_order is None:
-                topological_order = random.sample(range(0, num_inputs + 1), num_inputs + 1)
-                outputs = random.sample(range(num_inputs + 1,
-                                              num_inputs + num_outputs + 1), num_outputs)
-                topological_order.extend(outputs)
+                topological_order = [x for x in range(0, num_inputs + 1)]
+
+                # Add the output nodes to the ordering
+                topological_order.extend([y for y in range(num_inputs + 1,
+                                                           num_inputs + num_outputs + 1)])
+
         if mutation_rates is None:
             mutation_rates = MutationRates()
 
@@ -331,8 +429,7 @@ class Genome:
         self.global_rank = global_rank
         self.mutation_rates = mutation_rates
 
-        # If there is an initial structure, but no topological order then we need to find one
-        if (topological_order is None) & (self.genes == []):
+        if topological_order is None:
             topological_order = topological_sort(self)
         self.topological_order = topological_order
 
@@ -345,14 +442,18 @@ class Genome:
 
         self.genes.append(gene)
 
-    def mutate_connection(self, pool):
+    def mutate_connection(self, pool, is_bias):
         """
         Adds a gene to the genome randomly and changes the necessary
         parameters associated
         """
 
         random_list = copy.deepcopy(self.topological_order)
-        random_index1 = random.randint(0, len(random_list) - 1)
+
+        if is_bias:
+            random_index1 = self.num_inputs
+        else:
+            random_index1 = random.randint(0, len(random_list) - 1)
         random_node1 = random_list[random_index1]
 
         inputs = self.topological_order[: self.num_inputs + 1]
@@ -365,9 +466,34 @@ class Genome:
         # If we chose output, don't let us do that for the second choice
         elif outputs.__contains__(random_node1):
             index2_options = index2_options[: len(index2_options) - self.num_outputs]
+        # Else, just remove the node first node we chose
         else:
             index2_options.remove(random_index1)
 
+        options_to_remove = []
+        # Removes every node in index2_options that already has a connection to our
+        # first randomly chosen node
+        for option_num in range(0, len(index2_options)):
+            next_option = index2_options[option_num]
+            gene_num = 0
+            is_connection_found = False
+            while (gene_num < len(self.genes)) & (not is_connection_found):
+                indv_gene = self.genes[gene_num]
+                if ((indv_gene.into == next_option) & (indv_gene.out == random_node1) |
+                        (indv_gene.into == random_node1) & (indv_gene.out == next_option)):
+                    is_connection_found = True
+                else:
+                    gene_num += 1
+            if is_connection_found:
+                options_to_remove.append(option_num)
+
+        list.sort(options_to_remove, reverse=True)
+        for option in options_to_remove:
+            index2_options.pop(option)
+
+        # If there are no potential connections remaining then nothing needs to be done
+        if len(index2_options) == 0:
+            return
         random_index2 = index2_options[random.randint(0, len(index2_options) - 1)]
         random_node2 = random_list[random_index2]
 
@@ -394,6 +520,7 @@ class Genome:
 
         random_num = (random.random() * 4) - 2
         new_gene = Gene(random_node2, random_node1, random_num, True, innovation_num)
+
         self.genes.append(new_gene)
 
     def mutate_node(self, pool):
@@ -406,8 +533,11 @@ class Genome:
         # Compiles all of the genes that are enabled and not attached to the bias node
         for gene in self.genes:
             if gene.enabled & (not gene.out == self.num_inputs):
-                enabled_genes.append(gene)
-
+                innov = pool.node_history.get((gene.into, gene.out))
+                # Checks to see if the mutation of this gene is already present in the genome
+                # If so, then don't add it to the list of potentials
+                if not self.topological_order.__contains__(innov):
+                    enabled_genes.append(gene)
         # Checks to make sure there are enabled genes
         if len(enabled_genes) <= 0:
             return
@@ -465,10 +595,10 @@ class Genome:
         placement = random.randint(not_before, not_after)
 
         self.topological_order.insert(placement, new_node_innov)
-
-        old_gene.enabled = False
         self.genes.append(gene_split1)
         self.genes.append(gene_split2)
+
+        old_gene.enabled = False
 
     def to_string(self):
         """
@@ -561,7 +691,7 @@ class Network:
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
         self.neurons = neurons
-        self.topological_order = topological_order
+        self.topological_order = topological_order[:]
 
 
 class Neuron:
@@ -706,15 +836,17 @@ class GenerationRates:
     """
     A collection of rates on how the population changes from generation to generation
 
-    child_rate:     The percentage of bred children that make it to the next generation
-    mutated_rate:   The percentage of mutated genomes from the original generation that
-                    are brought into the next generation
-    top_x_species:  The number of top genomes from each species with greater than
-                    top_x_min_size that are brought into the next round
-    top_x_min_size: The number of genomes that need to be in a species to guarantee that
-                    it is eligible to give its top_x genomes to the next generation
-    cull_rate:      The percentage of genomes that will be removed from the pool before
-                    the creation of the next generation begins
+    child_rate:      The percentage of bred children that make it to the next generation
+    mutated_rate:    The percentage of mutated genomes from the original generation that
+                     are brought into the next generation
+    top_x_species:   The number of top genomes from each species with greater than
+                     top_x_min_size that are brought into the next round
+    top_x_min_size:  The number of genomes that need to be in a species to guarantee that
+                     it is eligible to give its top_x genomes to the next generation
+    cull_rate:       The percentage of genomes that will be removed from the pool before
+                     the creation of the next generation begins
+    passthrough_rate:The percentage of genomes that will pass through to the next generation
+                     undergoing only mutation
     Rates in NEAT Paper:
     child_rate = .75
     mutated_rate = .25
@@ -728,10 +860,11 @@ class GenerationRates:
     left the documentation for them here, in case they need to be added back as a
     forced value
     """
-    def __init__(self, top_x_species, top_x_min_size, cull_rate):
+    def __init__(self, top_x_species, top_x_min_size, cull_rate, passthrough_rate):
         self.top_x_species = top_x_species
         self.top_x_min_size = top_x_min_size
         self.cull_rate = cull_rate
+        self.passthrough_rate = passthrough_rate
 
 
 class LearningModel:
@@ -762,7 +895,9 @@ class LearningModel:
         self.model_rates = model_rates
         self.game_constants = game_constants
         innovation_start = model_constants.inputs + model_constants.outputs + 1
-        self.pool = Pool(innovation=innovation_start)
+        self.pool = Pool(species=None, generation=0, innovation=innovation_start, node_innovation=innovation_start,
+                         current_species=0, current_genome=0, max_fitness=0, node_history=None,
+                         gene_history=None)
         self.population = []
 
     # **********************************************************************************
@@ -1106,91 +1241,6 @@ class LearningModel:
     def set_mutation_rates(self, value):
         self.mutation_rates = value
 
-    @staticmethod
-    def sigmoid(value):
-        """
-        Returns the sigmoid of 'value'
-        :param value:   Value for sigmoid function to
-        :return:        Return sigmoid of value
-        """
-        denom = 1 + math.exp(-4.9*value)
-        return (2/denom)-1
-
-    def create_network(self, genome):
-        """
-        Creates and returns the network that is
-        modeled by 'genome'
-        :param genome:      Any instantiation of Genome
-        :return:            A network modeled by 'genome'
-        """
-
-        network = Network()
-        network.num_inputs = genome.num_inputs
-        network.num_outputs = genome.num_outputs
-        num_nodes = len(genome.topological_order)
-        neuron_order = genome.topological_order
-
-        neuron_list = []
-
-        # Appends all the neurons to the neuron_list
-        for x in range(0, num_nodes):
-            neuron_list.append(Neuron(genome.topological_order[x]))
-
-        # Creates connections between neurons based off of genes in the genome
-        for gene in genome.genes:
-            if gene.enabled:
-                cur_neuron = neuron_list[genome.topological_order.index(gene.into)]
-                cur_neuron.incoming_neurons.append(gene.out)
-                cur_neuron.weights.append(gene.weight)
-
-        # Adds all of the input and output nodes to the order
-        for neuron_iter in range(0, genome.num_inputs+genome.num_outputs):
-            network.neurons.append(neuron_list[neuron_iter])
-            neuron_order.remove(neuron_iter)
-
-        for node in neuron_order:
-            network.neurons.append(neuron_list[node])
-
-        network.topological_order = genome.topological_order
-
-        return network
-
-    def evaluate_neuron_values(self, network, inputs):
-        """
-        Assigns a value to each neuron based on the structure
-        of the network and the inputs that are given
-
-        :param network:     The network to be evaluated
-        :param inputs:      The set of numbers that are
-                            the values of the input neurons
-        """
-
-        # Assigns the input neurons their values
-        for input_iter in range(0, network.num_inputs):
-            network.neurons[input_iter] = inputs[input_iter]
-
-        hidden_start = network.num_inputs + network.num_outputs + 1
-
-        # Finds out the value of every next neuron based on previous neurons'
-        # values and the structure of the graph
-        for hidden_iter in range(hidden_start, len(network.neurons)):
-            cur_node = network.neurons[hidden_iter]
-            total_value = 0
-
-            for incoming_iter in range(0, len(cur_node.incoming_neurons)):
-                cur_connection = network.topological_order.index(cur_node.incoming_neurons[incoming_iter])
-                cur_value = network.neurons[cur_connection].value
-                total_value += cur_value * cur_node.weights[incoming_iter]
-
-            cur_node.value = self.sigmoid(total_value)
-
-        to_return = []
-        # Collecting neural network outputs
-        for output_iter in range(network.num_inputs, network.num_inputs + network.num_outputs):
-            to_return.append(network.neurons[output_iter])
-
-        return to_return
-
     def basic_genome(self, inputs, outputs):
         """
         Creates and returns a default genome with no connections
@@ -1214,15 +1264,15 @@ class LearningModel:
                         to every output node
         """
 
-        genome = self.basic_genome(inputs, outputs)
+        genes = []
 
         # Adds genes from every input node to every output node
         for input_iter in range(0, inputs):
             for output_iter in range(0, outputs):
-                genome.add_gene(Gene(output_iter + inputs + 1, input_iter,
-                                     (random.random() * 4) - 2, True, 0))
-
-        self.mutate(genome)
+                genes.append(Gene(output_iter + inputs + 1, input_iter,
+                                  (random.random() * 4) - 2, True, 0))
+        genome = Genome(genes, 0, 0, None, inputs, outputs, 0,
+                        copy_mutation_rates(self.mutation_rates), None)
 
         return genome
 
@@ -1230,16 +1280,13 @@ class LearningModel:
     # ******************************* Mutation Functions *******************************
     # **********************************************************************************
 
-    def mutate_pool(self):
+    def mutate_population(self):
         """
         Mutate all of the genomes that are still in the pool
         """
 
-        pool = self.pool
-
-        for species in pool.species:
-            for genome in species.genomes:
-                self.mutate(genome)
+        for genome in self.population:
+            self.mutate(genome)
 
     def mutate(self, genome):
         """
@@ -1268,7 +1315,7 @@ class LearningModel:
 
         while mutation_rate > 0:
             if random.random() < mutation_rate:
-                genome.mutate_connection(self.pool)
+                genome.mutate_connection(self.pool, False)
             mutation_rate -= 1
 
     def mutate_node(self, genome):
@@ -1343,7 +1390,7 @@ class LearningModel:
                 choices.append(gene)
 
         if len(choices) > 0:
-            random_num = random.randint(0, len(choices))
+            random_num = random.randint(0, len(choices) - 1)
             choices[random_num].enabled = not is_enable
 
     def mutate_bias(self, genome):
@@ -1356,23 +1403,8 @@ class LearningModel:
         mutation_rate = genome.mutation_rates.bias
 
         while mutation_rate > 0:
-
             if random.random() < mutation_rate:
-
-                choices = genome.topological_order
-                choices = choices[genome.num_inputs + 1:]
-
-                for gene in genome.genes:
-                    if gene.out == genome.num_inputs:
-                        choices.remove(gene.into)
-
-                bias_node = genome.num_inputs - 1
-                random_num = random.randint(genome.num_inputs, len(genome.topological_order))
-                random_node = genome.topological_order[random_num]
-
-                new_gene = Gene(random_node, bias_node, (random.random() * 4) - 2,
-                                True, self.pool.get_innovation())
-                genome.genes.append(new_gene)
+                genome.mutate_connection(self.pool, True)
             mutation_rate -= 1
 
     # **********************************************************************************
@@ -1420,102 +1452,80 @@ class LearningModel:
 
         new_species_list = []
 
+        # Add all of the old species that have one or more genome to the pool
         for cur_species in range(0, len(species_list)):
-            new_specie = Species()
-            new_specie.staleness = species_list[cur_species].stalentess
-            new_specie.genomes = species_pop[cur_species]
+            if species_pop[cur_species]:
+                new_specie = Species()
+                new_specie.staleness = species_list[cur_species].staleness
+                new_specie.genomes = species_pop[cur_species]
+                new_species_list.append(new_specie)
 
+        # Add all of the new species to the pool (they are guaranteed to have a genome)
         for cur_species in range(len(species_list), len(species_reps)):
             new_specie = Species()
             new_specie.staleness = 0
             new_specie.genomes = species_pop[cur_species]
             new_species_list.append(new_specie)
 
-        pool = Pool(new_species_list, self.pool.generation, self.pool.innovation,
+        pool = Pool(new_species_list, self.pool.generation + 1, self.pool.innovation,
                     self.pool.node_innovation, 0, 0, 0, self.pool.node_history,
                     self.pool.gene_history)
 
         return pool
 
     def compatibility_difference(self, genome1, genome2):
-        """
-        Finds the compatibility difference between two genomes.
 
-        :param genome1:     The first genome to be compared
-        :param genome2:     The second genome to be compared
-        :return:            Returns the compatibility difference
-        """
+        # If one genome is empty then count every gene as an excess gene
+        if (len(genome1.genes) == 0) | (len(genome2.genes) == 0):
+            return self.speciation_values.excess_coeff * \
+                   max(len(genome1.genes), len(genome2.genes))
 
-        max_innovation = self.pool.innovation
+        genes1_sorted = sorted(genome1.genes, key=lambda x: x.innovation)
+        genes2_sorted = sorted(genome2.genes, key=lambda x: x.innovation)
 
-        disjoint_genes = 0
-        excess_genes = 0
-        conjoint_genes = 0
-        weight_diff_total = 0
+        genes1_index = 0
+        genes2_index = 0
 
-        max_innov = 0
-        for gene in genome1.genes:
-            if gene.innovation > max_innov:
-                max_innov = gene.innovation
-        genome1_max_innov = max_innov
-
-        max_innov = 0
-        for gene in genome2.genes:
-            if gene.innovation > max_innov:
-                max_innov = gene.innovation
-        genome2_max_innov = max_innov
-
-        max_size = max(genome1_max_innov, genome2_max_innov)
-        genome1_genes = [[] for _ in range(0, max_size)]
-        genome2_genes = [[] for _ in range(0, max_size)]
-
-        # Sorts genes into easily accessed lists where each gene is at the
-        # index of its innovation number
-        for gene in genome1.genes:
-            genome1_genes[gene.innovation] = gene
-
-        # Sorts genes into easily accessed lists where each gene is at the
-        # index of its innovation number. While going through the list of
-        # genes in the genome we check for disjoint and excess genes
-        for gene in genome2.genes:
-            genome2_genes[gene.innovation] = gene
-            if genome1_genes[gene.innovation]:
-                if gene.innovation > genome1_max_innov:
-                    excess_genes += 1
-                else:
-                    disjoint_genes += 1
-
-        # Go through genome1's genes and count the number of conjoint,
-        # disjoint, and excess genes. As well as the total weight difference
-        # between conjoint genes
-        for gene in genome1.genes:
-            if not genome2_genes[gene.innovation]:
-                if gene.innovation > genome2_max_innov:
-                    excess_genes += 1
-                else:
-                    disjoint_genes += 1
-            else:
-                conjoint_genes += 1
-                weight_diff_total += abs(gene.weight - genome2_genes[gene.innovation].weight)
-
-        # The rest is just computing the compatibility difference based on values we have
-        # already found. We normalize the values of disjoint_genes and excess_genes, in
-        # order to account for varying sizes of genomes
-        if conjoint_genes > 0:
-            weight_diff_avg = weight_diff_total / conjoint_genes
-        else:
-            weight_diff_avg = 0
+        num_disjoint = 0
+        num_shared = 0
+        total_weight_dif = 0
         compat_values = self.speciation_values
-        num_genes = len(genome1.genes) + len(genome2.genes)
 
-        if num_genes == 0:
-            compatibility_diff = 0
+        # Make sure genes2_sorted has the gene with the largest innovation number in either array
+        if genes1_sorted[len(genes1_sorted) - 1].innovation > genes2_sorted[len(genes2_sorted) - 1].innovation:
+            temp = genes1_sorted
+            genes1_sorted = genes2_sorted
+            genes2_sorted = temp
+
+        # Move through the two lists in order of gene innovation
+        # We know genes2_sorted has the gene with the largest innovation
+        # So we know that we will reach the end of genes1_sorted before genes2_sorted
+        while genes1_index < len(genes1_sorted):
+
+            gene1 = genes1_sorted[genes1_index]
+            gene2 = genes2_sorted[genes2_index]
+
+            if gene1.innovation == gene2.innovation:
+                total_weight_dif += abs(gene1.weight - gene2.weight)
+                num_shared += 1
+                genes1_index += 1
+                genes2_index += 1
+            elif gene1.innovation > gene2.innovation:
+                num_disjoint += 1
+                genes2_index += 1
+            else:
+                num_disjoint += 1
+                genes1_index += 1
+
+        num_excess = len(genes2_sorted) - genes2_index
+        if num_shared == 0:
+            weight_diff_avg = 0
         else:
-            disjoint_genes /= num_genes
-            excess_genes /= num_genes
-            compatibility_diff = ((disjoint_genes * compat_values.disjoint_coeff) +
-                                  (excess_genes * compat_values.excess_coeff) +
-                                  (weight_diff_avg * compat_values.weight_coeff))
+            weight_diff_avg = total_weight_dif / num_shared
+
+        compatibility_diff = ((num_disjoint * compat_values.disjoint_coeff) +
+                              (num_excess * compat_values.excess_coeff) +
+                              (weight_diff_avg * compat_values.weight_coeff))
 
         return compatibility_diff
 
@@ -1548,6 +1558,7 @@ class LearningModel:
         self.create_population(False)
 
         for generation in range(0, num_generations):
+            print("GENERATION: ",generation)
             self.run_generation()
 
     def run_generation(self):
@@ -1564,44 +1575,50 @@ class LearningModel:
     def build_generation(self):
         """
         Completes the culling, breeding, and mutating stages of the NEAT cycle.
-
-        :return:    Returns a list of genomes to be put into the next pool
         """
 
         gen_size = self.model_constants.population_size
-        species = self.pool.species
 
-        top_x_genomes = self.isolate_top_x()
+        passthrough_genomes = self.isolate_top_x()
 
         self.cull_population()
 
-        num_mutated = 0
+        num_passthrough_genomes = math.ceil(gen_size * self.gen_rates.passthrough_rate)
+        genomes_needed = len(passthrough_genomes) - num_passthrough_genomes
+        # Ensure that the number of passthrough genomes is what it should be
+        # based on the specification given by the Pool class variables
+        if genomes_needed > 0:
+            # Number of remaining genomes after culling
+            num_remaining_genomes = gen_size - math.ceil(self.gen_rates.cull_rate * self.gen_size)
+            random_nums = sorted(random.sample(range(0, num_remaining_genomes),
+                                               num_remaining_genomes))
+            species_iter = 0
+            passed_genomes = 0
+            should_pop = True
 
-        # Figures out how many genomes are moving into the next generation
-        # after being mutated to see how many children genomes need to be bred
-        for specie in species:
-            num_mutated += len(specie.genomes)
+            while not random_nums == []:
+                if should_pop:
+                    random_num = random_nums.pop(0)
+                    should_pop = False
+                if (passed_genomes + len(self.pool.species[species_iter])) < random_num:
+                    genome_num = random_num - passed_genomes
+                    passthrough_genomes.append(self.pool.species[species_iter].genomes[genome_num])
+                    should_pop = True
+                else:
+                    passed_genomes += len(self.pool.species[species_iter])
+                    species_iter += 1
 
-        num_cross = gen_size - len(top_x_genomes) - num_mutated
+        num_cross = gen_size - len(passthrough_genomes)
         crossed_genomes = []
 
         # Create a certain number of bred children that fills in the rest of the population
         for cross_iter in range(0, num_cross):
             crossed_genomes.append(self.selection_crossover())
 
-        self.mutate_pool()
+        self.population = passthrough_genomes
+        self.population.extend(crossed_genomes)
 
-        mutated_genomes = []
-
-        # Adds all the mutated genomes to the list
-        for specie in species:
-            mutated_genomes.extend(specie.genomes)
-
-        to_return = mutated_genomes
-        to_return.extend(crossed_genomes)
-        to_return.extend(top_x_genomes)
-
-        return to_return
+        self.mutate_population()
 
     def isolate_top_x(self):
         """
@@ -1622,25 +1639,19 @@ class LearningModel:
         # Retrieves an "top_x_species" amount of genomes from each species that has
         # at least "top_x_min_size" genomes in its species
         for species_iter in range(0, len(self.pool.species)):
-            if len(species[species_iter]) >= top_x_min_size:
+            if len(species[species_iter].genomes) >= top_x_min_size:
                 genome_list = []
-                for genome in species[species_iter]:
-                    genome_list.append(genome.shared_fitness, (genome, species_iter))
-                sorted_genomes = sorted(genome_list)
+                for genome in species[species_iter].genomes:
+                    genome_list.append((genome.shared_fitness, (genome, species_iter)))
+                sorted_genomes = sorted(genome_list, key=lambda x: x[0])
 
                 genome_iter = len(sorted_genomes) - 1
                 list_len = len(sorted_genomes) - 1
                 while (genome_iter > 0) & (list_len - genome_iter < top_x_species):
-                    top_x_genomes.append(sorted_genomes[genome_iter])
+                    top_x_genomes.append(sorted_genomes[genome_iter][1][0])
                     genome_iter -= 1
 
-        deep_top_x_genomes = []
-
-        # Make these deep copies, because we will use the others later
-        for shallow_copy in top_x_genomes:
-            deep_top_x_genomes(copy_genome(shallow_copy))
-
-        return deep_top_x_genomes
+        return top_x_genomes
 
     def selection_crossover(self):
         """
@@ -1656,11 +1667,11 @@ class LearningModel:
 
         if (len(species) > 1) & (random.random() <= interspecies_mating_rate):
 
-            species_chosen = random.sample(range(0,len(species)), 2)
+            species_chosen = random.sample(range(0, len(species)), 2)
             genome1 = self.genome_selection(species[species_chosen[0]])
             genome2 = self.genome_selection(species[species_chosen[1]])
         else:
-            species_chosen = random.randint(0,len(species) - 1)
+            species_chosen = random.randint(0, len(species) - 1)
             genome1 = self.genome_selection(species[species_chosen])
             genome2 = self.genome_selection(species[species_chosen])
         return self.crossover_genes(genome1, genome2)
@@ -1680,6 +1691,11 @@ class LearningModel:
         for genome in species.genomes:
             fitness.append(genome.fitness)
             fitness_total += genome.fitness
+
+        # If all the genomes received zero fitness then they should all be equally
+        # likely to be chosen
+        if fitness_total == 0:
+            return species.genomes[random.randint(0, len(species.genomes) - 1)]
 
         random_num = random.random()
         cdf = 0         # cumulative distribution function over fitness
@@ -1701,26 +1717,56 @@ class LearningModel:
         :return:            A new genome that is a crossover of the two genome parameters
         """
 
-        if genome1.fitness < genome2.fitness:
-            temp = genome1
+        # If one genome is empty then return a copy of the other
+        if len(genome1.genes) == 0:
+            return copy_genome(genome2)
+        if len(genome2.genes) == 0:
+            return copy_genome(genome1)
+
+        genes1_sorted = sorted(genome1.genes, key=lambda x: x.innovation)
+        genes2_sorted = sorted(genome2.genes, key=lambda x: x.innovation)
+
+        genes1_index = 0
+        genes2_index = 0
+
+        # Make sure genes2_sorted has the gene with the largest innovation number in either array
+        if genes1_sorted[len(genes1_sorted) - 1].innovation > genes2_sorted[len(genes2_sorted) - 1].innovation:
+            temp = genes1_sorted
+            genes1_sorted = genes2_sorted
+            genes2_sorted = temp
+            temp2 = genome1
             genome1 = genome2
-            genome2 = temp
+            genome2 = temp2
 
-        new_genome = copy_genome(genome1)
-        new_genome.network = []
+        if genome1.fitness < genome2.fitness:
+            is_genome1_copy = False
+            new_genome = copy_genome(genome2)
+        else:
+            is_genome1_copy = True
+            new_genome = copy_genome(genome1)
 
-        innovations = [[] in range(0, self.pool.innovation)]
+        # Move through the two lists in order of gene innovation
+        # We know genes2_sorted has the gene with the largest innovation
+        # So we know that we will reach the end of genes1_sorted before genes2_sorted
+        while genes1_index < len(genes1_sorted):
 
-        for gene in genome1.genes:
-            innovations[gene.innovation] = gene
+            gene1 = genes1_sorted[genes1_index]
+            gene2 = genes2_sorted[genes2_index]
 
-        for gene in genome2.genes:
-            # If the innovation does not exist in genome1 then it is either an excess
-            # or disjoint gene and should be added to the new_gene
-            if not innovations[gene.innovation]:
-                new_genome.crossover_add_gene(gene)
+            if gene1.innovation == gene2.innovation:
+                genes1_index += 1
+                genes2_index += 1
+            elif gene1.innovation > gene2.innovation:
+                if is_genome1_copy:
+                    new_genome.crossover_add_gene(gene2)
+                genes2_index += 1
+            else:
+                if not is_genome1_copy:
+                    new_genome.crossover_add_gene(gene1)
+                genes1_index += 1
 
         new_genome.topological_order = topological_sort(new_genome)
+
         return new_genome
 
     def cull_population(self):
@@ -1733,21 +1779,21 @@ class LearningModel:
 
         # Creates a list of tuples of the form (shared fitness, (species, cur_genome))
         # Where cur_genome is the genome that is being evaluated, shared fitness is
-        # the shared fitness of that genome, and species is the number of the species
-        # that the cur_genome belongs to
+        # the shared fitness of that genome, and species is the location of the species
+        # that the cur_genome belongs to in self.pool.species
         for species_iter in range(0, len(self.pool.species)):
             for genome_iter in range(0, len(self.pool.species[species_iter].genomes)):
                 cur_genome = self.pool.species[species_iter].genomes[genome_iter]
-                all_genomes.append(cur_genome.shared_fitness, (species_iter, cur_genome))
+                all_genomes.append((cur_genome.shared_fitness, (species_iter, cur_genome)))
 
         # Sort the genomes by shared fitness
-        sorted_genomes = sorted(all_genomes)
+        sorted_genomes = sorted(all_genomes, key=lambda x: x[0])
 
-        to_remove = math.ceil(self.gen_rates.cull_rate * len(sorted_genomes))
+        to_remove = math.floor(self.gen_rates.cull_rate * self.model_constants.population_size)
         # Removes the amount of genomes specified by the given cull_rate
         for worst_genomes_iter in range(0, to_remove):
             (shared_fitness, (species, cur_genome)) = sorted_genomes[worst_genomes_iter]
-            self.pool.species[species].remove(cur_genome)
+            self.pool.species[species].genomes.remove(cur_genome)
 
         # Removes any species with no genomes from the pool
         for specie in self.pool.species:
@@ -1811,7 +1857,7 @@ class LearningModel:
 
         # Creates the networks for the population
         for genome in self.population:
-            genome.network = self.create_network(genome)
+            genome.network = create_network(genome)
 
         # Runs each game by facilitating the information transfer between
         # neural networks and the GameModel
@@ -1825,8 +1871,8 @@ class LearningModel:
 
                 (to_act, nn_inputs) = cur_game.send_inputs()
                 this_nn = self.population[game[to_act]].network
-                nn_output = self.evaluate_neuron_values(this_nn, nn_inputs)
-                is_game_done = (cur_game.receive_outputs(nn_output) == -1)
+                nn_output = evaluate_neuron_values(this_nn, nn_inputs)
+                is_game_done = cur_game.receive_outputs(nn_output)
 
             game_results = cur_game.send_fitness()
 

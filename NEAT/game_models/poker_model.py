@@ -181,10 +181,16 @@ class PokerGame(GameModel):
         return self.to_act, nn_input
 
     def receive_outputs(self, outputs):
+        """
+        Takes the values from the neural networks output and updates the
+        game based on those values
+
+        :return:    True if there are no more hands left. Else False
+        """
 
         # Doesn't allow this method if the game is over
         if self.total_hands == -1:
-            return -1
+            return True
 
         if not len(outputs) == 4:
             raise NotImplementedError("Output not recognized")
@@ -238,6 +244,11 @@ class PokerGame(GameModel):
 
         self.next_actor()
         self.is_send_state = True
+
+        if self.total_hands == -1:
+            return True
+
+        return False
 
     def next_round(self):
         board_state = len(self.board)
@@ -503,7 +514,8 @@ class PokerGame(GameModel):
             paid = owed
             total_pot += pot_size
 
-        print(self.player_money_state)
+        # DEBUG
+        # print(self.player_money_state)
         return total_pot
 
     def __cards_are_equal(self, card_set1, card_set2):
@@ -596,6 +608,7 @@ class PokerGame(GameModel):
             tiebreak_iter = tie_end + 1
 
         # DEBUGGING
+        """
         print("HAND RESULTs")
         string1 = "                  ["
         for item in self.hands:
@@ -614,6 +627,7 @@ class PokerGame(GameModel):
         print(best_actors)
         print(best_cards)
         print("END RESULTS")
+        """
 
         ranks = []
 
