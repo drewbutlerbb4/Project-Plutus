@@ -195,7 +195,7 @@ def copy_genome(genome):
         genes_copy.append(copy_gene(gene))
     mut_copy = copy_mutation_rates(genome.mutation_rates)
     genome_copy = Genome(genes=genes_copy, fitness=genome.fitness, shared_fitness=0, network=None,
-                         num_inputs=genome.num_inputs, num_outputs=genome.num_outputs, global_rank=0,
+                         num_inputs=genome.num_inputs, num_outputs=genome.num_outputs,
                          mutation_rates=mut_copy, topological_order=copy.deepcopy(genome.topological_order))
     return genome_copy
 
@@ -263,11 +263,12 @@ class Pool:
     """
     The complete generational pool of species and data about it
 
+    node_innovation:The next unused value to be given to a node innovation
+
     species:        The list of species in this pool
     generation:     The number of iterations of generations that
                     this pool has already undergone
     innovation:     The next unused value to be given to an innovation
-    node_innovation:The next unused value to be given to a node innovation
     current_species:The current species being evaluated
     current_genome: The current genome being evaluated
     max_fitness:    The maximum fitness for any genome in the pool
@@ -279,9 +280,8 @@ class Pool:
                     where we placed a connection of new_innov
     """
 
-    def __init__(self, species=None, generation=0, innovation=0, node_innovation=0,
-                 current_species=0, current_genome=0, max_fitness=0, node_history=None,
-                 gene_history=None):
+    def __init__(self, node_innovation, species=None, generation=0, innovation=0,
+                 max_fitness=0, node_history=None, gene_history=None):
         if species is None:
             species = []
         if node_history is None:
@@ -292,8 +292,6 @@ class Pool:
         self.generation = generation
         self.innovation = innovation
         self.node_innovation = node_innovation
-        self.current_species = current_species
-        self.current_genome = current_genome
         self.max_fitness = max_fitness
         self.node_history = node_history
         self.gene_history = gene_history
@@ -314,7 +312,6 @@ class Pool:
         for species_iter in range(1, len(self.species)):
             to_return += "," + self.species[species_iter].to_string()
         to_return += "]," + str(self.generation) + "," + str(self.innovation)
-        to_return += "," + str(self.current_species) + "," + str(self.current_genome)
         to_return += "," + str(self.max_fitness) + "}"
 
         return to_return
@@ -395,14 +392,12 @@ class Genome:
     shared_fitness:   The fitness when considering the species of the genome
     num_inputs:       The number of input neurons in the genome's network
     num_outputs:      The number of output neurons in the genome's network
-    global_rank:      The current rank of the genome
     topological_order:A list that represents the topological order
                       of the neurons
     """
 
-    def __init__(self, genes=None, fitness=0, shared_fitness=0, network=None,
-                 num_inputs=0, num_outputs=0, global_rank=0,
-                 mutation_rates=None, topological_order=None):
+    def __init__(self, genes=None, fitness=0, shared_fitness=0, network=None, num_inputs=0,
+                 num_outputs=0, mutation_rates=None, topological_order=None):
         if network is None:
             network = []
         # If there is no starting hidden structure then create initial topology
@@ -426,7 +421,6 @@ class Genome:
         self.network = network
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
-        self.global_rank = global_rank
         self.mutation_rates = mutation_rates
 
         if topological_order is None:
@@ -617,7 +611,6 @@ class Genome:
             to_return += "," + self.genes[gene_iter].to_string()
         to_return += "]," + str(self.fitness) + "," + str(self.shared_fitness)
         to_return += "," + str(self.num_inputs) + "," + str(self.num_outputs)
-        to_return += "," + str(len(self.topological_order)) + "," + str(self.global_rank)
         to_return += "," + self.mutation_rates.to_string() + "}"
 
         return to_return
@@ -632,7 +625,6 @@ class Gene:
     weight:     The level of distortion with which the value from
                 'out' will receive when being considered for 'into'
     enabled:    Whether or not this gene is currently a part of the network
-    average_fitness:    The average fitness associated with this specific gene
     innovation: The innovation number unique to this gene across all genomes
     """
 
@@ -895,9 +887,8 @@ class LearningModel:
         self.model_rates = model_rates
         self.game_constants = game_constants
         innovation_start = model_constants.inputs + model_constants.outputs + 1
-        self.pool = Pool(species=None, generation=0, innovation=innovation_start, node_innovation=innovation_start,
-                         current_species=0, current_genome=0, max_fitness=0, node_history=None,
-                         gene_history=None)
+        self.pool = Pool(innovation_start, species=None, generation=0, innovation=innovation_start,
+                         max_fitness=0, node_history=None, gene_history=None)
         self.population = []
 
     # **********************************************************************************
@@ -1188,7 +1179,6 @@ class LearningModel:
             cur_genome.num_inputs = int(list_items.pop(0))
             cur_genome.num_outputs = int(list_items.pop(0))
             list_items.pop(0)
-            cur_genome.global_rank = int(list_items.pop(0))
 
             cur_item_index = end_item_index + 1
             end_item_index = cur_item_index + file_contents[cur_item_index: file_len].find("}")
@@ -1249,7 +1239,7 @@ class LearningModel:
         :param outputs: The number of output variables for the neural network
         :return:        A default genome with no connections
         """
-        genome = Genome(None, 0, 0, None, inputs, outputs, 0,
+        genome = Genome(None, 0, 0, None, inputs, outputs,
                         copy_mutation_rates(self.mutation_rates), None)
         return genome
 
@@ -1271,7 +1261,7 @@ class LearningModel:
             for output_iter in range(0, outputs):
                 genes.append(Gene(output_iter + inputs + 1, input_iter,
                                   (random.random() * 4) - 2, True, 0))
-        genome = Genome(genes, 0, 0, None, inputs, outputs, 0,
+        genome = Genome(genes, 0, 0, None, inputs, outputs,
                         copy_mutation_rates(self.mutation_rates), None)
 
         return genome
@@ -1468,7 +1458,7 @@ class LearningModel:
             new_species_list.append(new_specie)
 
         pool = Pool(new_species_list, self.pool.generation + 1, self.pool.innovation,
-                    self.pool.node_innovation, 0, 0, 0, self.pool.node_history,
+                    self.pool.node_innovation, 0, self.pool.node_history,
                     self.pool.gene_history)
 
         return pool
