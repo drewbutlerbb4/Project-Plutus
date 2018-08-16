@@ -9,8 +9,8 @@ author: Andrew Butler
 import math
 import random
 import copy
+from json import JSONEncoder
 import json
-# TODO REMOVE json
 
 # **********************************************************************************
 # ***************************** Management Functions *******************************
@@ -296,26 +296,6 @@ class Pool:
         self.node_history = node_history
         self.gene_history = gene_history
 
-    def to_string(self):
-        """
-        Returns string representation of the Genome in the
-        format that the .ion file requires. Specified in
-        documentation point 1 at the heading docstring
-        (to be moved to README file)
-
-        :return:    String representation of the Genome
-        """
-
-        to_return = "{["
-        if len(self.species) > 0:
-            to_return += self.species[0].to_string()
-        for species_iter in range(1, len(self.species)):
-            to_return += "," + self.species[species_iter].to_string()
-        to_return += "]," + str(self.generation) + "," + str(self.innovation)
-        to_return += "," + str(self.max_fitness) + "}"
-
-        return to_return
-
     def get_innovation(self):
         """
         Increments and returns the innovation number
@@ -336,6 +316,42 @@ class Pool:
 
         to_return = self.node_innovation
         self.node_innovation += 1
+        return to_return
+
+    def to_json(self):
+        """
+        :return:    A json representation of this object
+        """
+        dict = copy.deepcopy(self.__dict__)
+        species = dict['species']
+        species_string = "["
+
+        if len(species) != 0:
+            for species_num in range(0, len(species) - 1):
+                species_string += species[species_num].to_json() + ", "
+            species_string += species[len(species) - 1]
+        species_string += "]"
+        dict['species'] = species_string
+        return json.dumps(dict)
+
+    def to_string(self):
+        """
+        Returns string representation of the Genome in the
+        format that the .ion file requires. Specified in
+        documentation point 1 at the heading docstring
+        (to be moved to README file)
+
+        :return:    String representation of the Genome
+        """
+
+        to_return = "{["
+        if len(self.species) > 0:
+            to_return += self.species[0].to_string()
+        for species_iter in range(1, len(self.species)):
+            to_return += "," + self.species[species_iter].to_string()
+        to_return += "]," + str(self.generation) + "," + str(self.innovation)
+        to_return += "," + str(self.max_fitness) + "}"
+
         return to_return
 
 
@@ -359,6 +375,22 @@ class Species:
         self.staleness = staleness
         self.genomes = genomes
         self.average_fitness = average_fitness
+
+    def to_json(self):
+        """
+        :return:    A json representation of this object
+        """
+        dict = copy.deepcopy(self.__dict__)
+        genomes = dict['genomes']
+        genomes_string = "["
+
+        if len(genomes) != 0:
+            for genomes_num in range(0, len(genomes) - 1):
+                genomes_string += genomes[genomes_num].to_json() + ", "
+            genomes_string += genomes[len(genomes) - 1]
+        genomes_string += "]"
+        dict['genomes'] = genomes_string
+        return json.dumps(dict)
 
     def to_string(self):
         """
@@ -594,6 +626,23 @@ class Genome:
 
         old_gene.enabled = False
 
+    def to_json(self):
+        """
+        :return:    A json representation of this object
+        """
+        dict = copy.deepcopy(self.__dict__)
+        genes = dict['genes']
+        genes_string = "["
+
+        if len(genes) != 0:
+            for gene_num in range(0, len(genes) - 1):
+                genes_string += genes[gene_num].to_json() + ", "
+            genes_string += genes[len(genes) - 1]
+        genes_string += "]"
+        dict['genes'] = genes_string
+        del dict['mutation_rates']
+        return json.dumps(dict)
+
     def to_string(self):
         """
         Returns string representation of the Genome in the
@@ -634,6 +683,12 @@ class Gene:
         self.weight = weight
         self.enabled = enabled
         self.innovation = innovation
+
+    def to_json(self):
+        """
+        :return: A json representation of the object
+        """
+        return json.dumps(self.__dict__)
 
     def to_string(self):
         """
