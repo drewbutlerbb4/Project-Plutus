@@ -9,7 +9,6 @@ author: Andrew Butler
 import math
 import random
 import copy
-from json import JSONEncoder
 import json
 
 # **********************************************************************************
@@ -322,7 +321,7 @@ class Pool:
         """
         :return:    A json representation of this object
         """
-        dict = copy.deepcopy(self.__dict__)
+        dict = copy.copy(self.__dict__)
         species = dict['species']
         species_string = "["
 
@@ -380,7 +379,7 @@ class Species:
         """
         :return:    A json representation of this object
         """
-        dict = copy.deepcopy(self.__dict__)
+        dict = copy.copy(self.__dict__)
         genomes = dict['genomes']
         genomes_string = "["
 
@@ -630,7 +629,7 @@ class Genome:
         """
         :return:    A json representation of this object
         """
-        dict = copy.deepcopy(self.__dict__)
+        dict = copy.copy(self.__dict__)
         genes = dict['genes']
         genes_string = "["
 
@@ -799,6 +798,9 @@ class MutationRates:
         self.disable = disable
         self.step = step
 
+    def to_json(self):
+        return json.dumps(self.__dict__)
+
     def to_string(self):
         """
         Returns string representation of the Mutation Rate in the
@@ -826,12 +828,16 @@ class ModelConstants:
     parallel_evals: The number of games going on at once
     games_per_genome:The number of games each genome plays during a generation
     """
-    def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_genome):
+    def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_genome, name):
         self.inputs = inputs
         self.outputs = outputs
         self.population_size = population_size
         self.parallel_evals = parallel_evals
         self.games_per_genome = games_per_genome
+        self.name = name
+
+    def to_json(self):
+        return json.dumps(self.__dict__)
 
 
 class GameConstants:
@@ -844,6 +850,9 @@ class GameConstants:
     def __init__(self, players_per_game, hands_per_game):
         self.players_per_game = players_per_game
         self.hands_per_game = hands_per_game
+
+    def to_json(self):
+        return json.dumps(self.__dict__)
 
 
 class SpeciationValues:
@@ -863,6 +872,9 @@ class SpeciationValues:
         self.weight_coeff = weight_coeff
         self.compat_constant = compat_constant
 
+    def to_json(self):
+        return json.dumps(self.__dict__)
+
 
 class ModelRates:
     """
@@ -878,6 +890,8 @@ class ModelRates:
         self.perturb_rate = perturb_rate
         self.interspecies_mating_rate = interspecies_mating_rate
 
+    def to_json(self):
+        return json.dumps(self.__dict__)
 
 class GenerationRates:
     """
@@ -913,6 +927,9 @@ class GenerationRates:
         self.cull_rate = cull_rate
         self.passthrough_rate = passthrough_rate
 
+    def to_json(self):
+        return json.dumps(self.__dict__)
+
 
 class LearningModel:
     def __init__(self, model_constants, game_generator, gen_rates,
@@ -945,6 +962,7 @@ class LearningModel:
         self.pool = Pool(innovation_start, species=None, generation=0, innovation=innovation_start,
                          max_fitness=0, node_history=None, gene_history=None)
         self.population = []
+        self.is_speciated = False
 
     # **********************************************************************************
     # ***************************** Save and Load Tools ********************************
@@ -1608,12 +1626,33 @@ class LearningModel:
 
     def run_generation(self):
 
-        self.pool = self.speciate_population(self.pool.species)
+        if not self.is_speciated:
+            self.pool = self.speciate_population(self.pool.species)
+            self.is_speciated = True
         self.score_genomes()
 
         self.build_generation()
+        self.is_speciated = False
 
-    # **********************************************************************************
+    def to_json(self):
+
+        if not self.is_speciated:
+            self.pool = self.speciate_population(self.pool.species)
+            self.is_speciated = True
+
+        dict = copy.copy(self.__dict__)
+
+        del dict['is_speciated']
+        dict['model_constants'] = dict['model_constants'].to_json()
+        dict['game_generator'] = dict['game_generator'].to_json()
+        dict['gen_rates'] = dict['gen_rates'].to_json()
+        dict['mutation_rates'] = dict['mutation_rates'].to_json()
+        dict['speciation_values'] = dict['speciation_values'].to_json()
+        dict['model_rates'] = dict['model_rates'].to_json()
+        dict['game_constants'] = dict['game_constants'].to_json()
+        return json.dumps(dict)
+
+        # **********************************************************************************
     # ************************** Building the Next Generation **************************
     # **********************************************************************************
 
