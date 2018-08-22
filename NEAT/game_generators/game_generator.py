@@ -28,3 +28,10 @@ class GameGenerator(ABC):
         :return:    Returns an instance of the game that this class is a generator of
         """
         pass
+
+    @abstractmethod
+    def to_json(self):
+        """
+        :return: Returns the name of the game generator
+        """
+        pass

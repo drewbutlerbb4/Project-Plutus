@@ -23,3 +23,9 @@ class PokerGenerator(GameGenerator):
         """
         self.games_made += 1
         return PokerGame(num_players, hands_per_game)
+
+    def to_json(self):
+        """
+        :return: Returns the name of the generator
+        """
+        return "PokerGenerator"

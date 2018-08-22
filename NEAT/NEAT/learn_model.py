@@ -277,23 +277,33 @@ class Pool:
     gene_history:   List of ((node_innov1, node_innov2), new_innov) where
                     node_innov1 is the out of node and node_innov2 is the into node
                     where we placed a connection of new_innov
+    json_dict:      Alternatively, initialization can be done via a dictionary
     """
 
     def __init__(self, node_innovation, species=None, generation=0, innovation=0,
-                 max_fitness=0, node_history=None, gene_history=None):
-        if species is None:
-            species = []
-        if node_history is None:
-            node_history = {}
-        if gene_history is None:
-            gene_history = {}
-        self.species = species
-        self.generation = generation
-        self.innovation = innovation
-        self.node_innovation = node_innovation
-        self.max_fitness = max_fitness
-        self.node_history = node_history
-        self.gene_history = gene_history
+                 max_fitness=0, node_history=None, gene_history=None, json_dict=None):
+        if json_dict is None:
+            if species is None:
+                species = []
+            if node_history is None:
+                node_history = {}
+            if gene_history is None:
+                gene_history = {}
+            self.species = species
+            self.generation = generation
+            self.innovation = innovation
+            self.node_innovation = node_innovation
+            self.max_fitness = max_fitness
+            self.node_history = node_history
+            self.gene_history = gene_history
+        else:
+            self.species = Species(json_dict=json_dict['species'])
+            self.generation = json_dict['generation']
+            self.innovation = json_dict['innovation']
+            self.node_innovation = json_dict['node_innovation']
+            self.max_fitness = json_dict['max_fitness']
+            self.node_history = json_dict['node_history']
+            self.gene_history = json_dict['gene_history']
 
     def get_innovation(self):
         """
@@ -323,15 +333,37 @@ class Pool:
         """
         dict = copy.copy(self.__dict__)
         species = dict['species']
-        species_string = "["
+        converted_species = []
 
-        if len(species) != 0:
-            for species_num in range(0, len(species) - 1):
-                species_string += species[species_num].to_json() + ", "
-            species_string += species[len(species) - 1]
-        species_string += "]"
-        dict['species'] = species_string
-        return json.dumps(dict)
+        for species_num in range(0, len(species)):
+            converted_species.append(species[species_num].to_json())
+        dict['species'] = converted_species
+
+        node_hist = {}
+        gene_hist = {}
+
+        # Convert keys of node_history and gene_history from tuples to strings
+        for key in dict['node_history'].keys():
+            node_hist[str(key)] = dict['node_history'][key]
+
+        for key in dict['gene_history'].keys():
+            gene_hist[str(key)] = dict['gene_history'][key]
+
+        dict['node_history'] = node_hist
+        dict['gene_history'] = gene_hist
+
+        print("POOL: ", dict)
+        try:
+            json.dumps(dict)
+        except TypeError:
+            for x in range(0, 5):
+                print("FAILED AT TPYES")
+        for key in dict.keys():
+            if isinstance(key, str):
+                print("IS KEY:", key)
+            else:
+                print("ISN'T KEY: ")
+        return dict
 
     def to_string(self):
         """
@@ -381,15 +413,27 @@ class Species:
         """
         dict = copy.copy(self.__dict__)
         genomes = dict['genomes']
-        genomes_string = "["
+        converted_genomes = []
 
-        if len(genomes) != 0:
-            for genomes_num in range(0, len(genomes) - 1):
-                genomes_string += genomes[genomes_num].to_json() + ", "
-            genomes_string += genomes[len(genomes) - 1]
-        genomes_string += "]"
-        dict['genomes'] = genomes_string
-        return json.dumps(dict)
+        for genomes_num in range(0, len(genomes)):
+            converted_genomes.append(genomes[genomes_num].to_json())
+        dict['genomes'] = converted_genomes
+
+        print("BEGIN SPECIES")
+        try:
+            json.dumps(dict)
+        except TypeError:
+            for x in range(0, 5):
+                print("FAILED AT TPYES")
+        for key in dict.keys():
+            if isinstance(key, str):
+                print("IS KEY:", key)
+            else:
+                print("ISN'T KEY: ")
+        print(dict)
+        print("END SPECIES")
+
+        return dict
 
     def to_string(self):
         """
@@ -631,16 +675,13 @@ class Genome:
         """
         dict = copy.copy(self.__dict__)
         genes = dict['genes']
-        genes_string = "["
+        converted_genes = []
 
-        if len(genes) != 0:
-            for gene_num in range(0, len(genes) - 1):
-                genes_string += genes[gene_num].to_json() + ", "
-            genes_string += genes[len(genes) - 1]
-        genes_string += "]"
-        dict['genes'] = genes_string
+        for gene_num in range(0, len(genes)):
+            converted_genes.append(genes[gene_num].to_json())
+        dict['genes'] = converted_genes
         del dict['mutation_rates']
-        return json.dumps(dict)
+        return dict
 
     def to_string(self):
         """
@@ -687,7 +728,7 @@ class Gene:
         """
         :return: A json representation of the object
         """
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
     def to_string(self):
         """
@@ -785,21 +826,30 @@ class MutationRates:
                     disabled.
     step:           The maximum change in either direction for the weight of
                     a gene if it is being perturbed
-
+    json_dict:      Alternatively, initialization can be done via a dictionary
     """
 
     def __init__(self, connection=0.0, link=0.8, bias=0.0, node=0.0, enable=0.0,
-                 disable=0.0, step=0.0):
-        self.connection = connection
-        self.link = link
-        self.bias = bias
-        self.node = node
-        self.enable = enable
-        self.disable = disable
-        self.step = step
+                 disable=0.0, step=0.0, json_dict=None):
+        if json_dict is None:
+            self.connection = connection
+            self.link = link
+            self.bias = bias
+            self.node = node
+            self.enable = enable
+            self.disable = disable
+            self.step = step
+        else:
+            self.connection = json_dict['connection']
+            self.link = json_dict['link']
+            self.bias = json_dict['bias']
+            self.node = json_dict['node']
+            self.enable = json_dict['enable']
+            self.disable = json_dict['disable']
+            self.step = json_dict['step']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
     def to_string(self):
         """
@@ -827,32 +877,46 @@ class ModelConstants:
     population_size:The size of the population during a generation
     parallel_evals: The number of games going on at once
     games_per_genome:The number of games each genome plays during a generation
+    json_dict:      Alternatively, initialization can be done via a dictionary
     """
-    def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_genome, name):
-        self.inputs = inputs
-        self.outputs = outputs
-        self.population_size = population_size
-        self.parallel_evals = parallel_evals
-        self.games_per_genome = games_per_genome
-        self.name = name
+    def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_genome, name, json_dict=None):
+        if json_dict is None:
+            self.inputs = inputs
+            self.outputs = outputs
+            self.population_size = population_size
+            self.parallel_evals = parallel_evals
+            self.games_per_genome = games_per_genome
+            self.name = name
+        else:
+            self.inputs = json_dict['inputs']
+            self.outputs = json_dict['outputs']
+            self.population_size = json_dict['population_size']
+            self.parallel_evals = json_dict['parallel_evals']
+            self.games_per_genome = json_dict['games_per_genome']
+            self.name = json_dict['name']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
 
 class GameConstants:
     """
     Constants that describe how the games should be played
 
-    players_per_game : The number of networks being evaluated at the same time
-    evals_per_game   : The number of evaluations on a network each game
+    players_per_game:   The number of networks being evaluated at the same time
+    evals_per_game:     The number of evaluations on a network each game
+    json_dict:          Alternatively, initialization can be done via a dictionary
     """
-    def __init__(self, players_per_game, hands_per_game):
-        self.players_per_game = players_per_game
-        self.hands_per_game = hands_per_game
+    def __init__(self, players_per_game, hands_per_game, json_dict=None):
+        if json_dict is None:
+            self.players_per_game = players_per_game
+            self.hands_per_game = hands_per_game
+        else:
+            self.players_per_game = json_dict['players_per_game']
+            self.hands_per_game = json_dict['hands_per_game']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
 
 class SpeciationValues:
@@ -865,15 +929,22 @@ class SpeciationValues:
                         in weights between two genes of the same innovation
     compat_constant:    The constant for the allowed compatibility difference
                         between genomes of the same species
+    json_dict:          Alternatively, initialization can be done via a dictionary
     """
-    def __init__(self, disjoint_coeff, excess_coeff, weight_coeff, compat_constant):
-        self.disjoint_coeff = disjoint_coeff
-        self.excess_coeff = excess_coeff
-        self.weight_coeff = weight_coeff
-        self.compat_constant = compat_constant
+    def __init__(self, disjoint_coeff, excess_coeff, weight_coeff, compat_constant, json_dict=None):
+        if json_dict is None:
+            self.disjoint_coeff = disjoint_coeff
+            self.excess_coeff = excess_coeff
+            self.weight_coeff = weight_coeff
+            self.compat_constant = compat_constant
+        else:
+            self.disjoint_coeff = json_dict['disjoint_coeff']
+            self.excess_coeff = json_dict['excess_coeff']
+            self.weight_coeff = json_dict['weight_coeff']
+            self.compat_constant = json_dict['compat_constant']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
 
 class ModelRates:
@@ -883,15 +954,22 @@ class ModelRates:
 
     perturb_rate:   The chance that mutated links will perturb
                     (This value is usually around 0.9)
-    interspecies_mating_rate: The chance that when breeding occurs it will
+    interspecies_mating_rate:
+                    The chance that when breeding occurs it will
                     be between two individuals of the different species
+    json_dict:      Alternatively, initialization can be done via a dictionary
     """
-    def __init__(self, perturb_rate, interspecies_mating_rate):
-        self.perturb_rate = perturb_rate
-        self.interspecies_mating_rate = interspecies_mating_rate
+    def __init__(self, perturb_rate, interspecies_mating_rate, json_dict=None):
+        if json_dict is None:
+            self.perturb_rate = perturb_rate
+            self.interspecies_mating_rate = interspecies_mating_rate
+        else:
+            self.perturb_rate = json_dict['perturb_rate']
+            self.interspecies_mating_rate = json_dict['interspecies_mating_rate']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
+
 
 class GenerationRates:
     """
@@ -908,6 +986,7 @@ class GenerationRates:
                      the creation of the next generation begins
     passthrough_rate:The percentage of genomes that will pass through to the next generation
                      undergoing only mutation
+    json_dict:       Alternatively, initialization can be done via a dictionary
     Rates in NEAT Paper:
     child_rate = .75
     mutated_rate = .25
@@ -921,19 +1000,25 @@ class GenerationRates:
     left the documentation for them here, in case they need to be added back as a
     forced value
     """
-    def __init__(self, top_x_species, top_x_min_size, cull_rate, passthrough_rate):
-        self.top_x_species = top_x_species
-        self.top_x_min_size = top_x_min_size
-        self.cull_rate = cull_rate
-        self.passthrough_rate = passthrough_rate
+    def __init__(self, top_x_species, top_x_min_size, cull_rate, passthrough_rate, json_dict=None):
+        if json_dict is None:
+            self.top_x_species = top_x_species
+            self.top_x_min_size = top_x_min_size
+            self.cull_rate = cull_rate
+            self.passthrough_rate = passthrough_rate
+        else:
+            self.top_x_species = json_dict['top_x_species']
+            self.top_x_min_size = json_dict['top_x_min_size']
+            self.cull_rate = json_dict['cull_rate']
+            self.passthrough_rate = json_dict['passthrough_rate']
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
 
 class LearningModel:
-    def __init__(self, model_constants, game_generator, gen_rates,
-                 mutation_rates, speciation_values, model_rates, game_constants):
+    def __init__(self, model_constants, game_generator, gen_rates, mutation_rates,
+                 speciation_values, model_rates, game_constants, json_string=None):
         """
         Saves the initial parameters
 
@@ -949,20 +1034,43 @@ class LearningModel:
         :param game_constants:  The constants for games to be made
         """
 
-        if mutation_rates is None:
-            mutation_rates = MutationRates()
-        self.model_constants = model_constants
-        self.game_generator = game_generator
-        self.gen_rates = gen_rates
-        self.mutation_rates = mutation_rates
-        self.speciation_values = speciation_values
-        self.model_rates = model_rates
-        self.game_constants = game_constants
-        innovation_start = model_constants.inputs + model_constants.outputs + 1
-        self.pool = Pool(innovation_start, species=None, generation=0, innovation=innovation_start,
-                         max_fitness=0, node_history=None, gene_history=None)
+        if json_string is None:
+            if mutation_rates is None:
+                mutation_rates = MutationRates()
+            self.model_constants = model_constants
+            self.game_generator = game_generator
+            self.gen_rates = gen_rates
+            self.mutation_rates = mutation_rates
+            self.speciation_values = speciation_values
+            self.model_rates = model_rates
+            self.game_constants = game_constants
+            innovation_start = model_constants.inputs + model_constants.outputs + 1
+            self.pool = Pool(innovation_start, species=None, generation=0,
+                             innovation=innovation_start, max_fitness=0,
+                             node_history=None, gene_history=None)
+            self.is_speciated = False
+        else:
+            if game_generator is None:
+                raise NotImplementedError("Game Generator is required to be set "
+                                          "regardless of initialization method")
+
+            load_dict = json.loads(json_string)
+
+            self.model_constants = ModelConstants(None, None, None, None, None, None,
+                                                  json_dict=load_dict['model_constants'])
+            self.game_generator = game_generator
+            self.gen_rates = GenerationRates(None, None, None, None,
+                                             json_dict=load_dict['gen_rates'])
+            self.mutation_rates = MutationRates(json_dict=load_dict['mutation_rates'])
+            self.speciation_values = SpeciationValues(None, None, None, None,
+                                                      json_dict=load_dict['speciation_values'])
+            self.model_rates = ModelRates(None, None, json_dict=load_dict['model_rates'])
+            self.game_constants = GameConstants(None, None, json_dict=load_dict['game_constants'])
+            self.pool = Pool(None, json_dict=load_dict['pool'])
+            self.is_speciated = True
+
         self.population = []
-        self.is_speciated = False
+
 
     # **********************************************************************************
     # ***************************** Save and Load Tools ********************************
@@ -1530,9 +1638,8 @@ class LearningModel:
             new_specie.genomes = species_pop[cur_species]
             new_species_list.append(new_specie)
 
-        pool = Pool(new_species_list, self.pool.generation + 1, self.pool.innovation,
-                    self.pool.node_innovation, 0, self.pool.node_history,
-                    self.pool.gene_history)
+        pool = Pool(self.pool.node_innovation, new_species_list, self.pool.generation + 1,
+                    self.pool.innovation, 0, self.pool.node_history, self.pool.gene_history)
 
         return pool
 
@@ -1643,6 +1750,8 @@ class LearningModel:
         dict = copy.copy(self.__dict__)
 
         del dict['is_speciated']
+        del dict['population']
+        dict['pool'] = dict['pool'].to_json()
         dict['model_constants'] = dict['model_constants'].to_json()
         dict['game_generator'] = dict['game_generator'].to_json()
         dict['gen_rates'] = dict['gen_rates'].to_json()
@@ -1650,9 +1759,11 @@ class LearningModel:
         dict['speciation_values'] = dict['speciation_values'].to_json()
         dict['model_rates'] = dict['model_rates'].to_json()
         dict['game_constants'] = dict['game_constants'].to_json()
+        print(dict)
+
         return json.dumps(dict)
 
-        # **********************************************************************************
+    # **********************************************************************************
     # ************************** Building the Next Generation **************************
     # **********************************************************************************
 
