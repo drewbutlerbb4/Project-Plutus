@@ -10,6 +10,7 @@ import math
 import random
 import copy
 import json
+from ast import literal_eval
 
 # **********************************************************************************
 # ***************************** Management Functions *******************************
@@ -277,11 +278,13 @@ class Pool:
     gene_history:   List of ((node_innov1, node_innov2), new_innov) where
                     node_innov1 is the out of node and node_innov2 is the into node
                     where we placed a connection of new_innov
-    json_dict:      Alternatively, initialization can be done via a dictionary
     """
 
     def __init__(self, node_innovation, species=None, generation=0, innovation=0,
                  max_fitness=0, node_history=None, gene_history=None, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             if species is None:
                 species = []
@@ -297,13 +300,31 @@ class Pool:
             self.node_history = node_history
             self.gene_history = gene_history
         else:
-            self.species = Species(json_dict=json_dict['species'])
+            self.species = []
+            for specie in json_dict['species']:
+                # Passes the original Mutation Rates so that genomes can be initialized to these rates
+                specie['mutation_rates'] = json_dict['mutation_rates']
+                self.species.append(Species(json_dict=specie))
             self.generation = json_dict['generation']
             self.innovation = json_dict['innovation']
             self.node_innovation = json_dict['node_innovation']
             self.max_fitness = json_dict['max_fitness']
-            self.node_history = json_dict['node_history']
-            self.gene_history = json_dict['gene_history']
+
+            old_node_dict = json_dict['node_history']
+            new_node_dict = {}
+
+            # Converts the keys which are string representations of tuples into tuples
+            for key in old_node_dict.keys():
+                new_node_dict[literal_eval(key)] = old_node_dict[key]
+
+            old_gene_dict = json_dict['gene_history']
+            new_gene_dict = {}
+
+            for key in old_gene_dict.keys():
+                new_gene_dict[literal_eval(key)] = old_gene_dict[key]
+
+            self.node_history = new_node_dict
+            self.gene_history = new_gene_dict
 
     def get_innovation(self):
         """
@@ -331,39 +352,28 @@ class Pool:
         """
         :return:    A json representation of this object
         """
-        dict = copy.copy(self.__dict__)
-        species = dict['species']
+        to_dict = copy.copy(self.__dict__)
+        species = to_dict['species']
         converted_species = []
 
         for species_num in range(0, len(species)):
             converted_species.append(species[species_num].to_json())
-        dict['species'] = converted_species
+        to_dict['species'] = converted_species
 
         node_hist = {}
         gene_hist = {}
 
         # Convert keys of node_history and gene_history from tuples to strings
-        for key in dict['node_history'].keys():
-            node_hist[str(key)] = dict['node_history'][key]
+        for key in to_dict['node_history'].keys():
+            node_hist[str(key)] = to_dict['node_history'][key]
 
-        for key in dict['gene_history'].keys():
-            gene_hist[str(key)] = dict['gene_history'][key]
+        for key in to_dict['gene_history'].keys():
+            gene_hist[str(key)] = to_dict['gene_history'][key]
 
-        dict['node_history'] = node_hist
-        dict['gene_history'] = gene_hist
+        to_dict['node_history'] = node_hist
+        to_dict['gene_history'] = gene_hist
 
-        print("POOL: ", dict)
-        try:
-            json.dumps(dict)
-        except TypeError:
-            for x in range(0, 5):
-                print("FAILED AT TPYES")
-        for key in dict.keys():
-            if isinstance(key, str):
-                print("IS KEY:", key)
-            else:
-                print("ISN'T KEY: ")
-        return dict
+        return to_dict
 
     def to_string(self):
         """
@@ -399,41 +409,40 @@ class Species:
     average_fitness:The average fitness of genomes in this species
     """
 
-    def __init__(self, top_fitness=0, staleness=0, genomes=None, average_fitness=0.0):
-        if genomes is None:
-            genomes = []
-        self.top_fitness = top_fitness
-        self.staleness = staleness
-        self.genomes = genomes
-        self.average_fitness = average_fitness
+    def __init__(self, top_fitness=0, staleness=0, genomes=None, average_fitness=0.0, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
+        if json_dict is None:
+            if genomes is None:
+                genomes = []
+            self.top_fitness = top_fitness
+            self.staleness = staleness
+            self.genomes = genomes
+            self.average_fitness = average_fitness
+        else:
+            self.genomes = []
+            for genome in json_dict['genomes']:
+                # Passes the original Mutation Rates so that genomes can be initialized to these rates
+                genome['mutation_rates'] = json_dict['mutation_rates']
+                self.genomes.append(Genome(json_dict=genome))
+            self.top_fitness = json_dict['top_fitness']
+            self.staleness = json_dict['staleness']
+            self.average_fitness = json_dict['average_fitness']
 
     def to_json(self):
         """
         :return:    A json representation of this object
         """
-        dict = copy.copy(self.__dict__)
-        genomes = dict['genomes']
+        to_dict = copy.copy(self.__dict__)
+        genomes = to_dict['genomes']
         converted_genomes = []
 
         for genomes_num in range(0, len(genomes)):
             converted_genomes.append(genomes[genomes_num].to_json())
-        dict['genomes'] = converted_genomes
+        to_dict['genomes'] = converted_genomes
 
-        print("BEGIN SPECIES")
-        try:
-            json.dumps(dict)
-        except TypeError:
-            for x in range(0, 5):
-                print("FAILED AT TPYES")
-        for key in dict.keys():
-            if isinstance(key, str):
-                print("IS KEY:", key)
-            else:
-                print("ISN'T KEY: ")
-        print(dict)
-        print("END SPECIES")
-
-        return dict
+        return to_dict
 
     def to_string(self):
         """
@@ -472,35 +481,52 @@ class Genome:
     """
 
     def __init__(self, genes=None, fitness=0, shared_fitness=0, network=None, num_inputs=0,
-                 num_outputs=0, mutation_rates=None, topological_order=None):
-        if network is None:
-            network = []
-        # If there is no starting hidden structure then create initial topology
-        # from only inputs, outputs, and bias. Else if there is an initial
-        # structure, but no topological order then we need to find one
-        if genes is None:
-            genes = []
+                 num_outputs=0, mutation_rates=None, topological_order=None, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
+        if json_dict is None:
+            if network is None:
+                network = []
+            # If there is no starting hidden structure then create initial topology
+            # from only inputs, outputs, and bias. Else if there is an initial
+            # structure, but no topological order then we need to find one
+            if genes is None:
+                genes = []
+                if topological_order is None:
+                    topological_order = [x for x in range(0, num_inputs + 1)]
+
+                    # Add the output nodes to the ordering
+                    topological_order.extend([y for y in range(num_inputs + 1,
+                                                               num_inputs + num_outputs + 1)])
+
+            if mutation_rates is None:
+                mutation_rates = MutationRates()
+
+            self.genes = genes
+            self.fitness = fitness
+            self.shared_fitness = shared_fitness
+            self.network = network
+            self.num_inputs = num_inputs
+            self.num_outputs = num_outputs
+            self.mutation_rates = mutation_rates
+
             if topological_order is None:
-                topological_order = [x for x in range(0, num_inputs + 1)]
+                topological_order = topological_sort(self)
+            self.topological_order = topological_order
+        else:
 
-                # Add the output nodes to the ordering
-                topological_order.extend([y for y in range(num_inputs + 1,
-                                                           num_inputs + num_outputs + 1)])
+            self.genes = []
+            for gene in json_dict['genes']:
+                self.genes.append(Gene(json_dict=gene))
+            self.fitness = json_dict['fitness']
+            self.shared_fitness = json_dict['shared_fitness']
+            self.network = []
+            self.num_inputs = json_dict['num_inputs']
+            self.num_outputs = json_dict['num_outputs']
+            self.mutation_rates = MutationRates(json_dict=json_dict['mutation_rates'])
 
-        if mutation_rates is None:
-            mutation_rates = MutationRates()
-
-        self.genes = genes
-        self.fitness = fitness
-        self.shared_fitness = shared_fitness
-        self.network = network
-        self.num_inputs = num_inputs
-        self.num_outputs = num_outputs
-        self.mutation_rates = mutation_rates
-
-        if topological_order is None:
-            topological_order = topological_sort(self)
-        self.topological_order = topological_order
+            self.topological_order = topological_sort(self)
 
     def crossover_add_gene(self, gene):
         """
@@ -673,15 +699,15 @@ class Genome:
         """
         :return:    A json representation of this object
         """
-        dict = copy.copy(self.__dict__)
-        genes = dict['genes']
+        to_dict = copy.copy(self.__dict__)
+        genes = to_dict['genes']
         converted_genes = []
 
         for gene_num in range(0, len(genes)):
             converted_genes.append(genes[gene_num].to_json())
-        dict['genes'] = converted_genes
-        del dict['mutation_rates']
-        return dict
+        to_dict['genes'] = converted_genes
+        del to_dict['mutation_rates']
+        return to_dict
 
     def to_string(self):
         """
@@ -717,12 +743,22 @@ class Gene:
     innovation: The innovation number unique to this gene across all genomes
     """
 
-    def __init__(self, into=0, out=0, weight=0.0, enabled=False, innovation=0):
-        self.into = into
-        self.out = out
-        self.weight = weight
-        self.enabled = enabled
-        self.innovation = innovation
+    def __init__(self, into=0, out=0, weight=0.0, enabled=False, innovation=0, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
+        if json_dict is None:
+            self.into = into
+            self.out = out
+            self.weight = weight
+            self.enabled = enabled
+            self.innovation = innovation
+        else:
+            self.into = json_dict['into']
+            self.out = json_dict['out']
+            self.weight = json_dict['weight']
+            self.enabled = json_dict['enabled']
+            self.innovation = json_dict['innovation']
 
     def to_json(self):
         """
@@ -826,11 +862,13 @@ class MutationRates:
                     disabled.
     step:           The maximum change in either direction for the weight of
                     a gene if it is being perturbed
-    json_dict:      Alternatively, initialization can be done via a dictionary
     """
 
     def __init__(self, connection=0.0, link=0.8, bias=0.0, node=0.0, enable=0.0,
                  disable=0.0, step=0.0, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.connection = connection
             self.link = link
@@ -877,9 +915,12 @@ class ModelConstants:
     population_size:The size of the population during a generation
     parallel_evals: The number of games going on at once
     games_per_genome:The number of games each genome plays during a generation
-    json_dict:      Alternatively, initialization can be done via a dictionary
+    name:           The name of this specific model. Used for saving the model
     """
     def __init__(self, inputs, outputs, population_size, parallel_evals, games_per_genome, name, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.inputs = inputs
             self.outputs = outputs
@@ -905,9 +946,11 @@ class GameConstants:
 
     players_per_game:   The number of networks being evaluated at the same time
     evals_per_game:     The number of evaluations on a network each game
-    json_dict:          Alternatively, initialization can be done via a dictionary
     """
     def __init__(self, players_per_game, hands_per_game, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.players_per_game = players_per_game
             self.hands_per_game = hands_per_game
@@ -929,9 +972,11 @@ class SpeciationValues:
                         in weights between two genes of the same innovation
     compat_constant:    The constant for the allowed compatibility difference
                         between genomes of the same species
-    json_dict:          Alternatively, initialization can be done via a dictionary
     """
     def __init__(self, disjoint_coeff, excess_coeff, weight_coeff, compat_constant, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.disjoint_coeff = disjoint_coeff
             self.excess_coeff = excess_coeff
@@ -957,9 +1002,11 @@ class ModelRates:
     interspecies_mating_rate:
                     The chance that when breeding occurs it will
                     be between two individuals of the different species
-    json_dict:      Alternatively, initialization can be done via a dictionary
     """
     def __init__(self, perturb_rate, interspecies_mating_rate, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.perturb_rate = perturb_rate
             self.interspecies_mating_rate = interspecies_mating_rate
@@ -986,7 +1033,6 @@ class GenerationRates:
                      the creation of the next generation begins
     passthrough_rate:The percentage of genomes that will pass through to the next generation
                      undergoing only mutation
-    json_dict:       Alternatively, initialization can be done via a dictionary
     Rates in NEAT Paper:
     child_rate = .75
     mutated_rate = .25
@@ -1001,6 +1047,9 @@ class GenerationRates:
     forced value
     """
     def __init__(self, top_x_species, top_x_min_size, cull_rate, passthrough_rate, json_dict=None):
+        """
+        :param json_dict: Alternatively, initialization can be done via a dictionary
+        """
         if json_dict is None:
             self.top_x_species = top_x_species
             self.top_x_min_size = top_x_min_size
@@ -1017,8 +1066,8 @@ class GenerationRates:
 
 
 class LearningModel:
-    def __init__(self, model_constants, game_generator, gen_rates, mutation_rates,
-                 speciation_values, model_rates, game_constants, json_string=None):
+    def __init__(self, model_constants, gen_rates, mutation_rates,
+                 speciation_values, model_rates, game_constants, game_generator, json_string=None):
         """
         Saves the initial parameters
 
@@ -1032,6 +1081,8 @@ class LearningModel:
         :param model_rates:     The rates of change that the learning model forces
                                 on the genomes it maintains
         :param game_constants:  The constants for games to be made
+        :param json_string:     Alternatively, initialization can be done via a string
+                                representation of a json
         """
 
         if json_string is None:
@@ -1066,341 +1117,14 @@ class LearningModel:
                                                       json_dict=load_dict['speciation_values'])
             self.model_rates = ModelRates(None, None, json_dict=load_dict['model_rates'])
             self.game_constants = GameConstants(None, None, json_dict=load_dict['game_constants'])
+
+            # Passes the original Mutation Rates so that genomes can be initialized to these rates
+            load_dict['pool']['mutation_rates'] = load_dict['mutation_rates']
+
             self.pool = Pool(None, json_dict=load_dict['pool'])
             self.is_speciated = True
 
         self.population = []
-
-
-    # **********************************************************************************
-    # ***************************** Save and Load Tools ********************************
-    # TODO DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED
-    # TODO DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED
-    # TODO DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED
-    # TODO DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED DEPRECATED
-    # TODO need to rewrite based on new structure of classes (Pool, Genome, Genes)
-    # **********************************************************************************
-
-    def save_generation(self, file_name):
-        """
-        Stores the current generation into a file
-        Information about how the data is represented
-        is present in documentation point 1 at the
-        heading docstring (to be moved to README file)
-
-        :param file_name:   Name of file to be saved to
-        :return:            The string representation of
-                            the pool
-        """
-
-        to_file_write = self.pool.to_string()
-        file_write = open(file_name, "w+")
-        file_write.write(to_file_write)
-        return to_file_write
-
-    def restore_generation(self, file_name):
-        """
-        Restores a generation from a file. This file must follow the
-        .ion file structure.
-
-        :param file_name:   The path of the file to be restored
-        """
-        read_file = open(file_name)
-        file_contents = read_file.read()
-        file_structure = sorted(self.find_file_structure(file_contents))
-        labels = self.label_structure(file_structure)
-
-        actualized_pool = self.actualize_objects(file_contents, labels, file_structure)
-        self.set_pool(actualized_pool)
-
-    def find_file_structure(self, file_contents):
-        """
-        Takes in a string from an archived file and returns the start and
-        finish of every object represented in this file
-
-        :param file_contents:   A string representing the file structure
-                                of Pools, Species, Genomes, and Genes
-        :return:                Returns a tuple representing the start
-                                and finish of the representation of
-                                every object in the file given
-        """
-
-        cur_letter = 0
-        end_file = len(file_contents)
-        list_of_components = []
-        start_of_layers = []    # Stack used to maintain 'start' structure markers
-
-        # Iterates through the string in order looking for structure markers
-        while not cur_letter == end_file:
-            letter = file_contents[cur_letter: cur_letter + 1]
-            if (letter == "{") | (letter == "["):
-                start_of_layers.append(cur_letter)
-            elif (letter == "}") | (letter == "]"):
-                list_of_components.append((start_of_layers.pop(), cur_letter))
-            cur_letter += 1
-
-        return list_of_components
-
-    def label_structure(self, file_struct):
-        """
-        Returns an array where an element at index 'i' represents the structural
-        depth of the object at file_struct[i]. The structural depth of an object
-        is how deeply embedded within other lists and objects it is. The object
-        Cat in {{{Cat},Dog}} would have a structural depth of 2 for example. The
-        structural depth is important as it identifies the class of that object.
-
-        :param file_struct: A list of (start, end) pairs where each (start, end)
-                            pair is the index of the start and end of an object
-        :return:            A list of labels indicating the structural depth of
-                            the objects represented in file_struct
-        """
-
-        list_iter = 0
-        num_structs = len(file_struct)
-        open_structs = []          # Stack for maintaining structural depth
-        labels = [-1 for _ in range(0, len(file_struct))]
-
-        # Iterates through the file structure to find the structural depth of each object
-        while list_iter < num_structs:
-            # If open_structs is empty, start the stack
-            if not open_structs:
-                open_structs.append(list_iter)
-            else:
-                last_struct = file_struct[open_structs[len(open_structs) - 1]]
-
-                # If the last structure seen has an end that is after the current structures'
-                # beginning, add the current structure to the stack
-                if last_struct[1] > file_struct[list_iter][0]:
-                    open_structs.append(list_iter)
-                # Else the last structure ends before the current one starts, so remove the last
-                # structure from the stack and save its structural depth
-                else:
-                    popped = open_structs.pop()
-                    labels[popped] = len(open_structs)
-                    list_iter -= 1
-
-            list_iter += 1
-
-        while not open_structs == []:
-            cur_item = open_structs.pop()
-            labels[cur_item] = len(open_structs)
-
-        return labels
-
-    def actualize_objects(self, file_contents, labels, file_struct):
-        """
-        Restores the objects that are contained in file_contents
-        with the given meta-data 'labels' and 'file_struct' into
-        a Pool. Returns that Pool
-
-        :param file_contents:   The string representation of the file
-                                being restored
-        :param labels:          The set of labels that denote the structural
-                                depth of the 'i'th object
-        :param file_struct:     The set of (start, end) pairs that denote the
-                                start and end of the 'i'th object, sorted in
-                                increasing order of the 'start'
-        :return:                The Pool that is stored in the file
-        """
-
-        if len(labels) == 0:
-            return None
-
-        cur_index = 0
-        last_index = len(labels)
-        finished_objects = [None for _ in range(0, last_index)]
-
-        # Iterate through every object in an attempt to label them
-        while not cur_index >= last_index:
-            cur_depth = labels[cur_index]
-            # Protection against when we get to the last element
-            if cur_index == last_index - 1:
-                next_depth = -1
-            else:
-                next_depth = labels[cur_index + 1]
-
-            # If the current items depth is greater than the next items depth then
-            # we have reached the leaf of a branch in the file structure.
-            if cur_depth > next_depth:
-                backtrack_index = cur_index
-
-                # Iterate backwards through the objects until we reach the lowest
-                # common ancestor with another branch in the file structure
-                while (backtrack_index >= 0) & (labels[backtrack_index] > next_depth):
-                    # We take advantage of the objects structure, by noting that every other
-                    # object must be a list. Even numbers are Pools, Species, Genomes, and Genes.
-                    # While odd numbers are lists.
-                    # If the structural depth is even, then restore the object
-                    if labels[backtrack_index] % 2 == 0:
-                        obj_contents = []
-                        obj_content_bounds = None
-
-                        if backtrack_index + 1 < len(labels):
-                            obj_contents = finished_objects[backtrack_index + 1]
-                            obj_content_bounds = file_struct[backtrack_index + 1]
-
-                        obj = self.restore_object(file_contents, labels[backtrack_index],
-                                                  file_struct[backtrack_index],
-                                                  obj_contents,
-                                                  obj_content_bounds)
-                        finished_objects[backtrack_index] = obj
-                    # Else if the structural depth is odd, then compile all the elements
-                    # of the list
-                    else:
-                        # If the list is the last object then we know it is empty
-                        if backtrack_index >= len(labels) - 1:
-                            finished_objects[backtrack_index] = []
-                        # If the next object is not exactly one structural depth lower
-                        # then the list is empty
-                        elif not labels[backtrack_index] == labels[backtrack_index + 1] - 1:
-                            finished_objects[backtrack_index] = []
-                        # Else add objects all object oof exactly one structural depth lower
-                        # until you reach an object that is one structural depth higher
-                        else:
-                            list_depth = labels[backtrack_index]
-                            list_index = backtrack_index + 1
-                            compiled_list = []
-
-                            if list_index < len(labels):
-                                back_depth = labels[list_index]
-
-                                while list_depth < back_depth:
-                                    if list_depth == labels[list_index] - 1:
-                                        compiled_list.append(finished_objects[list_index])
-                                    list_index += 1
-                                    if list_index < len(labels):
-                                        back_depth = labels[list_index]
-                                    else:
-                                        back_depth = list_depth
-
-                            finished_objects[backtrack_index] = compiled_list
-                    backtrack_index -= 1
-            cur_index += 1
-        return finished_objects[0]
-
-    def restore_object(self, file_contents, struct_depth, struct_bounds,
-                       struct_contents, content_bounds):
-        """
-        This object takes in multiple items of meta-data about file_contents
-        and uses this to efficiently restore the object to memory
-
-        :param file_contents:       The string representation of the object
-                                    being restored
-        :param struct_depth:        The structural depth of the object in the
-                                    file being restored. This corresponds to
-                                    the class of the object being restored
-        :param struct_bounds:       A (start, end) pair where the start denotes
-                                    the leading '{' and the end denotes the
-                                    trailing '}' of the object
-        :param struct_contents:     A list of objects that have been restored
-                                    that are owned by the object currently
-                                    being restored
-        :param content_bounds:      A (start, end) pair where the start denotes
-                                    the leading '[' and the end denotes the
-                                    trailing ']' of the object's content
-        :return:                    Returns the object being restored
-        """
-
-        file_len = len(file_contents)
-        # If the object to be restored has a structural depth of 0, then it is a Pool
-        if struct_depth == 0:
-            cur_pool = Pool()
-            cur_pool.species = struct_contents
-            cur_item_index = content_bounds[1] + 2
-            end_item_index = cur_item_index + file_contents[cur_item_index:file_len].find("}")
-
-            list_items = file_contents[cur_item_index:end_item_index].split(",")
-
-            cur_pool.generation = int(list_items.pop(0))
-            cur_pool.innovation = int(list_items.pop(0))
-            cur_pool.current_species = int(list_items.pop(0))
-            cur_pool.current_genome = int(list_items.pop(0))
-            cur_pool.max_fitness = int(list_items.pop(0))
-            return cur_pool
-
-        # If the object to be restored has a structural depth of 2, then it is a Species
-        elif struct_depth == 2:
-            cur_species = Species()
-
-            cur_item_index = struct_bounds[0] + 1
-            next_item_index = cur_item_index + file_contents[cur_item_index: file_len].find(",")
-            cur_species.top_fitness = int(file_contents[cur_item_index: next_item_index])
-
-            cur_item_index = next_item_index + 1
-            next_item_index = cur_item_index + file_contents[cur_item_index: file_len].find(",")
-            cur_species.staleness = int(file_contents[cur_item_index: next_item_index])
-
-            cur_species.genomes = struct_contents
-
-            cur_item_index = content_bounds[1] + 2
-            next_item_index = cur_item_index + file_contents[cur_item_index: file_len].find("}")
-            cur_species.average_fitness = float(file_contents[cur_item_index: next_item_index])
-            return cur_species
-
-        # If the object to be restored has a structural depth of 4, then it is a Genome
-        elif struct_depth == 4:
-            cur_genome = Genome()
-
-            cur_genome.genes = struct_contents
-            cur_genome.topological_order = topological_sort(struct_contents)
-
-            max_innov = 0
-            # Finds the max innovation number from the genes in the genome
-            for gene in cur_genome.genes:
-                if gene.innovation > max_innov:
-                    max_innov = gene.innovation
-
-            cur_item_index = content_bounds[1] + 2
-            end_item_index = cur_item_index + file_contents[cur_item_index: file_len].find(";")
-
-            list_items = file_contents[cur_item_index: end_item_index].split(",")
-
-            cur_genome.fitness = int(list_items.pop(0))
-            cur_genome.shared_fitness = int(list_items.pop(0))
-            cur_genome.num_inputs = int(list_items.pop(0))
-            cur_genome.num_outputs = int(list_items.pop(0))
-            list_items.pop(0)
-
-            cur_item_index = end_item_index + 1
-            end_item_index = cur_item_index + file_contents[cur_item_index: file_len].find("}")
-
-            hold_over = list_items.pop(0)
-            list_items = file_contents[cur_item_index: end_item_index].split(";")
-
-            cur_mutation_rate = MutationRates()
-            cur_mutation_rate.connection = float(hold_over)
-            cur_mutation_rate.link = float(list_items.pop(0))
-            cur_mutation_rate.bias = float(list_items.pop(0))
-            cur_mutation_rate.node = float(list_items.pop(0))
-            cur_mutation_rate.enable = float(list_items.pop(0))
-            cur_mutation_rate.disable = float(list_items.pop(0))
-            cur_mutation_rate.step = float(list_items.pop(0))
-
-            cur_genome.mutation_rates = cur_mutation_rate
-
-            return cur_genome
-
-        # If the object to be restored has a structural depth of 6, then it is a Gene
-        elif struct_depth == 6:
-
-            cur_gene = Gene()
-
-            cur_item_index = struct_bounds[0] + 1
-            end_item_index = cur_item_index + file_contents[cur_item_index:file_len].find("}")
-
-            list_items = file_contents[cur_item_index:end_item_index].split(",")
-
-            cur_gene.into = int(list_items.pop(0))
-            cur_gene.out = int(list_items.pop(0))
-            cur_gene.weight = float(list_items.pop(0))
-            cur_gene.enabled = list_items.pop(0) == "T"
-            cur_gene.innovation = int(list_items.pop(0))
-
-            return cur_gene
-
-        # Else the Object has been mislabeled, raise an error
-        else:
-            raise NotImplementedError("The file given is not formatted correctly")
 
     # **********************************************************************************
     # ******************************** Managing Library ********************************
@@ -1644,6 +1368,14 @@ class LearningModel:
         return pool
 
     def compatibility_difference(self, genome1, genome2):
+        """
+        Calculates the compatibility difference using the Speciation Values and the
+        genomes structure
+
+        :param genome1: The first genome
+        :param genome2: The second genome
+        :return: The calculated compatibility difference
+        """
 
         # If one genome is empty then count every gene as an excess gene
         if (len(genome1.genes) == 0) | (len(genome2.genes) == 0):
@@ -1723,15 +1455,30 @@ class LearningModel:
             self.mutate(new_genome)
             self.population.append(new_genome)
 
-    def run_simulation(self, num_generations):
+    def run_simulation(self, num_generations, save_frequency, save_path):
+        """
+        Runs the model for the number of generations specified
+
+        :param num_generations: The number of generations to be ran
+        :param save_frequency:  The number of generations that skip saving
+                                between generations that do save
+        """
 
         self.create_population(False)
+        count = 0
 
         for generation in range(0, num_generations):
-            print("GENERATION: ",generation)
             self.run_generation()
+            if save_frequency == count:
+                self.save_json(save_path)
+                count = 0
+            else:
+                count += 1
 
     def run_generation(self):
+        """
+        Runs one generation which includes three stages; speciation, scoring, and building
+        """
 
         if not self.is_speciated:
             self.pool = self.speciate_population(self.pool.species)
@@ -1741,27 +1488,46 @@ class LearningModel:
         self.build_generation()
         self.is_speciated = False
 
-    def to_json(self):
+    def _to_json(self):
+        """
+        :return: A dictionary representing the object
+        """
 
         if not self.is_speciated:
             self.pool = self.speciate_population(self.pool.species)
             self.is_speciated = True
 
-        dict = copy.copy(self.__dict__)
+        to_dict = copy.copy(self.__dict__)
 
-        del dict['is_speciated']
-        del dict['population']
-        dict['pool'] = dict['pool'].to_json()
-        dict['model_constants'] = dict['model_constants'].to_json()
-        dict['game_generator'] = dict['game_generator'].to_json()
-        dict['gen_rates'] = dict['gen_rates'].to_json()
-        dict['mutation_rates'] = dict['mutation_rates'].to_json()
-        dict['speciation_values'] = dict['speciation_values'].to_json()
-        dict['model_rates'] = dict['model_rates'].to_json()
-        dict['game_constants'] = dict['game_constants'].to_json()
-        print(dict)
+        del to_dict['is_speciated']
+        del to_dict['population']
+        to_dict['pool'] = to_dict['pool'].to_json()
+        to_dict['model_constants'] = to_dict['model_constants'].to_json()
+        to_dict['game_generator'] = to_dict['game_generator'].to_json()
+        to_dict['gen_rates'] = to_dict['gen_rates'].to_json()
+        to_dict['mutation_rates'] = to_dict['mutation_rates'].to_json()
+        to_dict['speciation_values'] = to_dict['speciation_values'].to_json()
+        to_dict['model_rates'] = to_dict['model_rates'].to_json()
+        to_dict['game_constants'] = to_dict['game_constants'].to_json()
 
-        return json.dumps(dict)
+        return to_dict
+
+    def to_json(self):
+        """
+        :return: A dictionary representing the object
+        """
+        return self._to_json()
+
+    def save_json(self, file_path):
+        """
+        Saves the json representation of the model to a file
+
+        :param file_path: The file path to where the file should be saved
+        """
+
+        json_dict = self._to_json()
+        full_file_path  = file_path + self.model_constants.name + "-" + str(self.pool.generation)
+        json.dump(json_dict, full_file_path)
 
     # **********************************************************************************
     # ************************** Building the Next Generation **************************
