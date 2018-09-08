@@ -33,8 +33,8 @@ class XorGame(GameModel):
         :return:    The number of the neural network to interpret the data
                     and the information to be interpretted by the network
         """
-        self.cur_input = (random.randint(0, 1), random.randint(0, 1))
-        return self.cur_input
+        self.cur_input = [random.randint(0, 1), random.randint(0, 1)]
+        return 0, self.cur_input
 
     def receive_outputs(self, outputs):
         """
@@ -47,10 +47,10 @@ class XorGame(GameModel):
         if self.cur_hand <= self.hands_per_game:
             cur_input = self.cur_input
             if (cur_input == (0,0)) | (cur_input == (1, 1)):
-                if outputs < 0.5:
+                if outputs[0] > outputs[1]:
                     self.correct_answers += 1
             else:
-                if outputs > 0.5:
+                if outputs[1] > outputs[0]:
                     self.correct_answers += 1
             self.cur_hand += 1
         else:
@@ -64,6 +64,6 @@ class XorGame(GameModel):
         :return:    A list of fitness values of each of the neural networks
         """
         if self.cur_hand > self.hands_per_game:
-            return self.correct_answers / self.hands_per_game
+            return [self.correct_answers / self.hands_per_game]
         else:
             return -1

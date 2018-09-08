@@ -1468,6 +1468,7 @@ class LearningModel:
         count = 0
 
         for generation in range(0, num_generations):
+            print("GENERATION: ", generation)
             self.run_generation()
             if save_frequency == count:
                 self.save_json(save_path)
@@ -1483,6 +1484,7 @@ class LearningModel:
         if not self.is_speciated:
             self.pool = self.speciate_population(self.pool.species)
             self.is_speciated = True
+
         self.score_genomes()
 
         self.build_generation()
@@ -1635,6 +1637,7 @@ class LearningModel:
             species_chosen = random.randint(0, len(species) - 1)
             genome1 = self.genome_selection(species[species_chosen])
             genome2 = self.genome_selection(species[species_chosen])
+
         return self.crossover_genes(genome1, genome2)
 
     def genome_selection(self, species):
@@ -1756,10 +1759,14 @@ class LearningModel:
             (shared_fitness, (species, cur_genome)) = sorted_genomes[worst_genomes_iter]
             self.pool.species[species].genomes.remove(cur_genome)
 
+        cur_specie = 0
+
         # Removes any species with no genomes from the pool
-        for specie in self.pool.species:
-            if len(specie.genomes) == 0:
-                self.pool.species.remove(specie)
+        while cur_specie < len(self.pool.species):
+            if len(self.pool.species[cur_specie].genomes) == 0:
+                self.pool.species.pop(cur_specie)
+            else:
+                cur_specie += 1
 
     # **********************************************************************************
     # ***************************** Fitness Scoring ************************************
@@ -1838,7 +1845,7 @@ class LearningModel:
             game_results = cur_game.send_fitness()
 
             for game_iter in range(0, len(game)):
-                self.population[game[game_iter]].fitness += game_results[game_iter]
+                    self.population[game[game_iter]].fitness += game_results[game_iter]
 
         # Reset networks to empty, as the same networks are not likely to be used again
         for genome in self.population:

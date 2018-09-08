@@ -2,7 +2,7 @@ from NEAT.game_generators.game_generator import GameGenerator
 from NEAT.game_models.xor_model import XorGame
 
 
-class PokerGenerator(GameGenerator):
+class XorGenerator(GameGenerator):
 
     def __init__(self):
         """
