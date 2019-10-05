@@ -4,6 +4,6 @@ Project-Plutus is a python implementation of the paper on [NeuroEvolution of Aug
 
 ## Explanation of Hyperparameters
 
-Hyperparameters are listed and explained in this [README](https://github.com/drewbutlerbb4/Project-Plutus/blob/master/NEAT/NEAT/README)
+Hyperparameters are listed and explained in this [README](https://github.com/drewbutlerbb4/Project-Plutus/tree/master/NEAT/NEAT)
 
 
